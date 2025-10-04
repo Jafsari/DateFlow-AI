@@ -11,7 +11,12 @@ const app = express();
 app.use(helmet());
 app.use(morgan('combined'));
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    'https://dateflow-ai.vercel.app',
+    'https://dateflow-ai.netlify.app',
+    'https://dateflow-ai-git-main-jafsari.vercel.app'
+  ],
   credentials: true
 }));
 app.use(express.json());
@@ -59,7 +64,7 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
