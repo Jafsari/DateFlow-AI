@@ -2,7 +2,15 @@
   "version": 2,
   "builds": [
     {
-      "src": "dating-agent-backend/server.js",
+      "src": "api/chat/guest.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/chat/transcribe/guest.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "api/chat/synthesize/guest.js",
       "use": "@vercel/node"
     },
     {
@@ -15,15 +23,20 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/dating-agent-backend/server.js"
+      "src": "/api/chat/guest",
+      "dest": "/api/chat/guest.js"
+    },
+    {
+      "src": "/api/chat/transcribe/guest",
+      "dest": "/api/chat/transcribe/guest.js"
+    },
+    {
+      "src": "/api/chat/synthesize/guest",
+      "dest": "/api/chat/synthesize/guest.js"
     },
     {
       "src": "/(.*)",
       "dest": "/dating-agent-frontend/build/index.html"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }
