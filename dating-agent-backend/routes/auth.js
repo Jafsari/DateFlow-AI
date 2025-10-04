@@ -7,12 +7,12 @@ const router = express.Router();
 // Register new user
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, name, location } = req.body;
+    const { email, password, name, location, city, neighborhood, travel_radius } = req.body;
 
     // Validation
-    if (!email || !password || !name) {
+    if (!email || !password || !name || !city || !neighborhood) {
       return res.status(400).json({
-        error: 'Email, password, and name are required',
+        error: 'Email, password, name, city, and neighborhood are required',
         code: 'MISSING_FIELDS'
       });
     }
@@ -43,7 +43,10 @@ router.post('/register', async (req, res) => {
       password_hash: password, // Will be hashed by pre-save middleware
       profile: {
         name,
-        location: location || ''
+        location: location || city || '',
+        city: city,
+        neighborhood: neighborhood,
+        travel_radius: travel_radius || 3
       },
       email_verification_token: verificationToken,
       email_verification_expires: verificationExpires
@@ -121,14 +124,14 @@ router.post('/login', async (req, res) => {
     await user.updateLastActive();
     console.log(`✅ User logged in: ${email}`);
 
-    // Generate JWT token
+    // Generate JWT token with longer expiration
     const token = jwt.sign(
       { 
         userId: user._id, 
         email: user.email 
       },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      process.env.JWT_SECRET || 'fallback-secret-key-for-development',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '30d' } // Extended to 30 days
     );
 
     res.json({

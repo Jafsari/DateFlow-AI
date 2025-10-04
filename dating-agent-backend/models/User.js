@@ -23,6 +23,11 @@ const userSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    city: {
+      type: String,
+      required: true,
+      trim: true
+    },
     age: {
       type: Number,
       min: 18,
@@ -35,6 +40,7 @@ const userSchema = new mongoose.Schema({
     },
     neighborhood: {
       type: String,
+      required: true,
       trim: true
     },
     travel_radius: {

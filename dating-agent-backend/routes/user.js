@@ -46,6 +46,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     const { 
       name, 
       location, 
+      city,
       neighborhood,
       travel_radius,
       age, 
@@ -59,6 +60,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     const updateData = {};
     if (name !== undefined) updateData['profile.name'] = name;
     if (location !== undefined) updateData['profile.location'] = location;
+    if (city !== undefined) updateData['profile.city'] = city;
     if (neighborhood !== undefined) updateData['profile.neighborhood'] = neighborhood;
     if (travel_radius !== undefined) updateData['profile.travel_radius'] = travel_radius;
     if (age !== undefined) updateData['profile.age'] = age;

@@ -136,7 +136,7 @@ router.post('/date-flow', authenticateToken, async (req, res) => {
 // Date ideas endpoint
 router.get('/date-ideas', authenticateToken, async (req, res) => {
   try {
-    const { location } = req.query;
+    const { location, force_refresh } = req.query;
     
     if (!location) {
       return res.status(400).json({
@@ -147,16 +147,20 @@ router.get('/date-ideas', authenticateToken, async (req, res) => {
 
     console.log(`💡 Date ideas request for location: ${location}`);
 
-    // Check cache first
-    const cachedDateIdeas = getCachedDateIdeas(location);
-    if (cachedDateIdeas) {
-      console.log(`✅ Returning ${cachedDateIdeas.length} cached date ideas`);
-      return res.json({
-        dateIdeas: cachedDateIdeas,
-        location: location,
-        source: 'cache',
-        count: cachedDateIdeas.length
-      });
+    // Check cache first only if force_refresh is not requested
+    if (force_refresh !== 'true') {
+      const cachedDateIdeas = getCachedDateIdeas(location);
+      if (cachedDateIdeas) {
+        console.log(`✅ Returning ${cachedDateIdeas.length} cached date ideas`);
+        return res.json({
+          dateIdeas: cachedDateIdeas,
+          location: location,
+          source: 'cache',
+          count: cachedDateIdeas.length
+        });
+      }
+    } else {
+      console.log(`🔄 Force refresh requested - bypassing cache for date ideas: ${location}`);
     }
 
     // Get partner profile from query params (if available)
@@ -239,7 +243,16 @@ router.get('/date-ideas', authenticateToken, async (req, res) => {
 // Events endpoint
 router.get('/events', authenticateToken, async (req, res) => {
   try {
-    const { location, neighborhood, travel_radius } = req.query;
+    const { location, neighborhood, travel_radius, force_refresh } = req.query;
+    
+    console.log('🔍 Events API Debug - Received parameters:', {
+      location,
+      neighborhood,
+      travel_radius,
+      force_refresh,
+      allQueryParams: req.query,
+      userId: req.user?.userId
+    });
     
     if (!location) {
       return res.status(400).json({
@@ -248,20 +261,32 @@ router.get('/events', authenticateToken, async (req, res) => {
       });
     }
 
-    const radius = travel_radius || '10';
+    const radius = travel_radius || '3';
     const neighborhoodInfo = neighborhood ? ` (${neighborhood})` : '';
+    
+    console.log(`🎯 Processing events request: ${location}${neighborhoodInfo} within ${radius} miles`);
     console.log(`📅 Events request for location: ${location}${neighborhoodInfo}, radius: ${radius} miles`);
 
-    // Check cache first
-    const cachedEvents = getCachedEvents(location);
-    if (cachedEvents) {
-      console.log(`✅ Returning ${cachedEvents.length} cached events`);
-      return res.json({
-        events: cachedEvents,
-        location: location,
-        source: 'cache',
-        count: cachedEvents.length
-      });
+    // Create a more specific cache key that includes neighborhood and radius
+    const cacheKey = `${location}-${neighborhood || 'no-neighborhood'}-${radius}`;
+    
+    // Check cache only if force_refresh is not requested
+    console.log(`🔍 Cache check debug: force_refresh='${force_refresh}', type: ${typeof force_refresh}, strict check: ${force_refresh !== 'true'}`);
+    if (force_refresh !== 'true') {
+      const cachedEvents = getCachedEvents(cacheKey);
+      if (cachedEvents) {
+        console.log(`📋 Using cached events for: ${cacheKey}`);
+        return res.json({
+          events: cachedEvents,
+          location: location,
+          neighborhood: neighborhood,
+          radius: radius,
+          source: 'cache',
+          count: cachedEvents.length
+        });
+      }
+    } else {
+      console.log(`🔄 Force refresh requested - bypassing cache for: ${cacheKey}`);
     }
 
     // Get partner profile from query params (if available)
@@ -272,10 +297,12 @@ router.get('/events', authenticateToken, async (req, res) => {
 
     if (events && events.length > 0) {
       console.log(`✅ Returning ${events.length} real events from Groq`);
-      setCachedEvents(location, events); // Cache the results
+      setCachedEvents(cacheKey, events); // Cache the results with specific key
       res.json({
         events: events,
         location: location,
+        neighborhood: neighborhood,
+        radius: radius,
         source: 'groq_api',
         count: events.length
       });
@@ -369,6 +396,8 @@ router.get('/events', authenticateToken, async (req, res) => {
       res.json({
         events: fallbackEvents,
         location: location,
+        neighborhood: neighborhood,
+        radius: radius,
         source: 'fallback',
         count: fallbackEvents.length
       });
@@ -558,6 +587,8 @@ USER PROFILE:
 - Interests: ${userProfile.interests || 'Not specified'}
 - Budget: ${userProfile.budget || 'Not specified'}
 - Location: ${fullLocation}
+- Neighborhood: ${userProfile.neighborhood || 'Not specified'}
+- Travel Radius: ${userProfile.travel_radius || 3} miles
 - Preferences: ${userProfile.preferences || 'Not specified'}` : '';
 
     const partnerContext = partnerProfile?.name ? `
@@ -575,7 +606,8 @@ DATE PREFERENCES:
 - Duration: ${preferences.duration || 'Not specified'}
 - Budget: ${preferences.budget || 'Not specified'}
 - Style: ${preferences.style || 'Not specified'}
-- Activities: ${preferences.activities || 'Not specified'}` : '';
+- Activities: ${preferences.activities || 'Not specified'}
+- Preferred Neighborhood/Area: ${preferences.neighborhood || 'Not specified'}` : '';
 
     const prompt = `Create a personalized date flow for ${fullLocation}. This should be a detailed, step-by-step itinerary that considers all the provided information.${userContext}${partnerContext}${preferencesContext}
 
@@ -588,12 +620,19 @@ DATE PREFERENCES:
     6. **Budget Breakdown** - Cost estimates for each part
     7. **Backup Options** - Alternative activities if weather/availability changes
 
+    CRITICAL NEIGHBORHOOD REQUIREMENTS:
+    - HEAVILY prioritize the user's neighborhood: "${userProfile?.neighborhood || preferences?.neighborhood || 'Not specified'}"
+    - If a specific neighborhood is provided, focus 80% of activities in that area
+    - Prefer venues within the user's travel radius: ${userProfile?.travel_radius || 3} miles
+    - Choose restaurants and activities that are easily accessible from the specified neighborhood
+    - Consider the neighborhood's character (downtown vs arts district vs residential, etc.)
+
     IMPORTANT:
     - Use REAL venues and restaurants in ${cityName}
     - Consider both user and partner preferences
     - Make it realistic and achievable
     - Include specific venue names and addresses when possible
-    - Factor in travel time between locations
+    - Factor in travel time between locations (prioritize same neighborhood)
     - Consider the budget constraints
     - Make it romantic and memorable
 
@@ -974,18 +1013,16 @@ const canMakeGroqCall = () => {
   return true;
 };
 
-const getCachedEvents = (location) => {
-  const cacheKey = location.toLowerCase();
+const getCachedEvents = (cacheKey) => {
   const cached = eventsCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log('📋 Using cached events for:', location);
+    console.log('📋 Using cached events for:', cacheKey);
     return cached.data;
   }
   return null;
 };
 
-const setCachedEvents = (location, data) => {
-  const cacheKey = location.toLowerCase();
+const setCachedEvents = (cacheKey, data) => {
   eventsCache.set(cacheKey, {
     data,
     timestamp: Date.now()
@@ -1042,13 +1079,23 @@ const callGroqForEvents = async (location, neighborhood, radius, partnerProfile)
     - Budget Range: ${partnerProfile.budget || 'Not specified'}
     - Dietary Restrictions: ${partnerProfile.dietaryRestrictions || 'None'}
     - Neighborhood: ${partnerProfile.neighborhood || 'Not specified'}
-    - Travel Radius: ${partnerProfile.travel_radius || '10'} miles
+    - Travel Radius: ${partnerProfile.travel_radius || '3'} miles
     
     Please consider these preferences when suggesting events.` : '';
 
     const currentDate = new Date();
     const futureDate = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000);
     
+    console.log('🤖 Groq API Debug - Sending to Groq:', {
+      fullLocation,
+      neighborhoodInfo,
+      radiusInfo,
+      neighborhood,
+      cityName,
+      radius,
+      partnerContext: partnerContext ? 'Yes' : 'No'
+    });
+
     const prompt = `Find 10 upcoming events happening in ${fullLocation}${neighborhoodInfo}${radiusInfo} between ${currentDate.toLocaleDateString()} and ${futureDate.toLocaleDateString()}. These should be realistic events that typically happen in this area and be convenient for someone living in ${neighborhood || cityName}.${partnerContext}
 
     For each event, provide:
@@ -1169,7 +1216,7 @@ IMPORTANT: You have access to previous conversation history. Use this context to
       const userProfile = context.userProfile;
       const location = userProfile.location || userProfile.user?.profile?.location || 'Unknown';
       const neighborhood = userProfile.neighborhood || userProfile.user?.profile?.neighborhood || '';
-      const travelRadius = userProfile.travel_radius || userProfile.user?.profile?.travel_radius || '10';
+      const travelRadius = userProfile.travel_radius || userProfile.user?.profile?.travel_radius || '3';
       
       fionaPrompt += `\n\nUSER PROFILE CONTEXT:
 - User preferences: ${JSON.stringify(context.userProfile)}
@@ -1199,7 +1246,7 @@ PARTNER DETAILS:
 - Budget Range: ${partner.budget || 'Not specified'}
 - Location: ${partner.location || 'Not specified'}
 - Neighborhood: ${partner.neighborhood || 'Not specified'}
-- Travel Radius: ${partner.travel_radius || '10'} miles
+- Travel Radius: ${partner.travel_radius || '3'} miles
 
 SUBTLE PERSONALIZATION GUIDELINES:
 1. Only reference partner details when directly relevant to the user's question
