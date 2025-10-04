@@ -19,12 +19,8 @@
       "dest": "/api/index.js"
     },
     {
-      "src": "/static/(.*)",
-      "dest": "/dating-agent-frontend/build/static/$1"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/dating-agent-frontend/build/index.html"
+      "dest": "/dating-agent-frontend/build/$1"
     }
   ]
 }
