@@ -10,6 +10,253 @@ const router = express.Router();
 // Simple in-memory store for guest conversations
 const guestConversations = new Map();
 
+// Date ideas endpoint
+router.get('/date-ideas', authenticateToken, async (req, res) => {
+  try {
+    const { location } = req.query;
+    
+    if (!location) {
+      return res.status(400).json({
+        error: 'Location is required',
+        code: 'MISSING_LOCATION'
+      });
+    }
+
+    console.log(`💡 Date ideas request for location: ${location}`);
+
+    // Check cache first
+    const cachedDateIdeas = getCachedDateIdeas(location);
+    if (cachedDateIdeas) {
+      console.log(`✅ Returning ${cachedDateIdeas.length} cached date ideas`);
+      return res.json({
+        dateIdeas: cachedDateIdeas,
+        location: location,
+        source: 'cache',
+        count: cachedDateIdeas.length
+      });
+    }
+
+    // Get partner profile from query params (if available)
+    const partnerProfile = req.query.partner_profile ? JSON.parse(req.query.partner_profile) : null;
+
+    // Call Groq API for real date ideas
+    const dateIdeas = await callGroqForDateIdeas(location, partnerProfile);
+
+    if (dateIdeas && dateIdeas.length > 0) {
+      console.log(`✅ Returning ${dateIdeas.length} date ideas from Groq`);
+      setCachedDateIdeas(location, dateIdeas); // Cache the results
+      res.json({
+        dateIdeas: dateIdeas,
+        location: location,
+        source: 'groq_api',
+        count: dateIdeas.length
+      });
+    } else {
+      console.log('⚠️ No date ideas from Groq, returning fallback ideas');
+      // Return fallback date ideas if Groq fails
+      const fallbackDateIdeas = [
+        {
+          title: `${location.split(',')[0]} Food Tour`,
+          duration: "3-4 hours",
+          budget: "$60-100",
+          description: `Explore the culinary scene of ${location.split(',')[0]} with a guided food tour through local restaurants and food markets.`,
+          activities: ["Food tasting", "Market exploration", "Restaurant visits", "Cultural learning"],
+          bestTime: "Afternoon (12-4 PM)"
+        },
+        {
+          title: `${location.split(',')[0]} Sunset Walk`,
+          duration: "2-3 hours",
+          budget: "$20-40",
+          description: `Take a romantic walk through ${location.split(',')[0]}'s most scenic spots during golden hour.`,
+          activities: ["Walking", "Photography", "Scenic views", "Conversation"],
+          bestTime: "Evening (5-8 PM)"
+        },
+        {
+          title: `${location.split(',')[0]} Museum Date`,
+          duration: "2-4 hours",
+          budget: "$30-60",
+          description: `Explore art and culture together at ${location.split(',')[0]}'s finest museums and galleries.`,
+          activities: ["Art viewing", "Gallery tours", "Coffee break", "Discussion"],
+          bestTime: "Afternoon (1-5 PM)"
+        },
+        {
+          title: `${location.split(',')[0]} Cooking Class`,
+          duration: "3-4 hours",
+          budget: "$80-120",
+          description: `Learn to cook a romantic meal together at a local culinary school in ${location.split(',')[0]}.`,
+          activities: ["Cooking", "Wine tasting", "Learning", "Eating together"],
+          bestTime: "Evening (6-10 PM)"
+        },
+        {
+          title: `${location.split(',')[0]} Live Music Night`,
+          duration: "3-5 hours",
+          budget: "$40-80",
+          description: `Enjoy live music at one of ${location.split(',')[0]}'s intimate venues or concert halls.`,
+          activities: ["Live music", "Drinks", "Dancing", "Socializing"],
+          bestTime: "Evening (7-11 PM)"
+        }
+      ];
+
+      res.json({
+        dateIdeas: fallbackDateIdeas,
+        location: location,
+        source: 'fallback',
+        count: fallbackDateIdeas.length
+      });
+    }
+  } catch (error) {
+    console.error('❌ Date ideas endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch date ideas',
+      code: 'DATE_IDEAS_ERROR'
+    });
+  }
+});
+
+// Events endpoint
+router.get('/events', authenticateToken, async (req, res) => {
+  try {
+    const { location } = req.query;
+    
+    if (!location) {
+      return res.status(400).json({
+        error: 'Location is required',
+        code: 'MISSING_LOCATION'
+      });
+    }
+
+    console.log(`📅 Events request for location: ${location}`);
+
+    // Check cache first
+    const cachedEvents = getCachedEvents(location);
+    if (cachedEvents) {
+      console.log(`✅ Returning ${cachedEvents.length} cached events`);
+      return res.json({
+        events: cachedEvents,
+        location: location,
+        source: 'cache',
+        count: cachedEvents.length
+      });
+    }
+
+    // Get partner profile from query params (if available)
+    const partnerProfile = req.query.partner_profile ? JSON.parse(req.query.partner_profile) : null;
+
+    // Call Groq API for real events
+    const events = await callGroqForEvents(location, partnerProfile);
+
+    if (events && events.length > 0) {
+      console.log(`✅ Returning ${events.length} real events from Groq`);
+      setCachedEvents(location, events); // Cache the results
+      res.json({
+        events: events,
+        location: location,
+        source: 'groq_api',
+        count: events.length
+      });
+    } else {
+      console.log('⚠️ No events from Groq, returning fallback events');
+      // Return fallback events if Groq fails
+      const cityName = location.split(',')[0];
+      const fallbackEvents = [
+        {
+          name: `${cityName} Food Festival`,
+          date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Convention Center`,
+          category: 'Food & Drink',
+          description: `Annual food festival featuring ${cityName}'s best local restaurants and food trucks.`,
+          cost: '$15-25'
+        },
+        {
+          name: `${cityName} Jazz Night`,
+          date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Music Hall`,
+          category: 'Music',
+          description: `Live jazz performances by local and touring artists at ${cityName}'s premier music venue.`,
+          cost: '$20-40'
+        },
+        {
+          name: `${cityName} Art Walk`,
+          date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Arts District`,
+          category: 'Art & Culture',
+          description: `Gallery openings and street art installations throughout ${cityName}'s vibrant arts district.`,
+          cost: 'Free'
+        },
+        {
+          name: `${cityName} Farmers Market`,
+          date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Downtown Plaza`,
+          category: 'Market',
+          description: `Fresh local produce, artisanal goods, and live music at ${cityName}'s popular farmers market.`,
+          cost: 'Free'
+        },
+        {
+          name: `${cityName} Comedy Night`,
+          date: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Comedy Club`,
+          category: 'Entertainment',
+          description: `Stand-up comedy featuring local and national comedians at ${cityName}'s top comedy venue.`,
+          cost: '$12-20'
+        },
+        {
+          name: `${cityName} Wine Tasting`,
+          date: new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Winery`,
+          category: 'Food & Drink',
+          description: `Premium wine tasting with cheese pairings at ${cityName}'s award-winning winery.`,
+          cost: '$35-55'
+        },
+        {
+          name: `${cityName} Outdoor Movie Night`,
+          date: new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Central Park`,
+          category: 'Entertainment',
+          description: `Classic movie screening under the stars with food trucks at ${cityName}'s scenic park.`,
+          cost: 'Free'
+        },
+        {
+          name: `${cityName} Cooking Class`,
+          date: new Date(Date.now() + 9 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Culinary School`,
+          category: 'Food & Drink',
+          description: `Interactive cooking class for couples with professional chefs at ${cityName}'s premier culinary school.`,
+          cost: '$75-95'
+        },
+        {
+          name: `${cityName} Live Music Festival`,
+          date: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Amphitheater`,
+          category: 'Music',
+          description: `Multi-genre music festival with local and touring artists at ${cityName}'s outdoor amphitheater.`,
+          cost: '$40-80'
+        },
+        {
+          name: `${cityName} Artisan Craft Fair`,
+          date: new Date(Date.now() + 11 * 24 * 60 * 60 * 1000).toLocaleDateString(),
+          location: `${cityName} Community Center`,
+          category: 'Art & Culture',
+          description: `Local artisans showcasing handmade crafts and art at ${cityName}'s community center.`,
+          cost: 'Free'
+        }
+      ];
+
+      res.json({
+        events: fallbackEvents,
+        location: location,
+        source: 'fallback',
+        count: fallbackEvents.length
+      });
+    }
+  } catch (error) {
+    console.error('❌ Events endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to fetch events',
+      code: 'EVENTS_ERROR'
+    });
+  }
+});
+
 // Configure multer for audio file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -236,6 +483,308 @@ const generateFionaResponse = (userMessage, context) => {
   }
   
   return "Hi! I'm Fiona, and I'm here to help make your date planning easy and fun! 💕 Whether you're planning a first date, anniversary, or just a special evening, I'd love to help. What can we work on together?";
+};
+
+// Groq AI integration for date ideas
+const callGroqForDateIdeas = async (location, partnerProfile) => {
+  try {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    
+    if (!groqApiKey) {
+      console.warn('GROQ_API_KEY not found for date ideas');
+      return null;
+    }
+
+    // Check rate limiting
+    if (!canMakeGroqCall()) {
+      console.log('⏳ Skipping Groq API call due to rate limiting');
+      return null;
+    }
+
+    const cityName = location.split(',')[0].trim();
+    const stateName = location.split(',')[1]?.trim() || '';
+    const fullLocation = stateName ? `${cityName}, ${stateName}` : cityName;
+
+    const partnerContext = partnerProfile?.name ? `
+    
+    PARTNER PREFERENCES:
+    - Partner Name: ${partnerProfile.name}
+    - Interests: ${partnerProfile.interests || 'Not specified'}
+    - Preferences: ${partnerProfile.preferences || 'Not specified'}
+    - Budget Range: ${partnerProfile.budget || 'Not specified'}
+    - Dietary Restrictions: ${partnerProfile.dietaryRestrictions || 'None'}
+    
+    Please consider these preferences when suggesting date ideas.` : '';
+
+    const prompt = `Create 10 amazing date ideas for ${fullLocation}. These should be realistic, romantic, and fun activities that couples can actually do in this city.${partnerContext}
+
+    For each date idea, provide:
+    - Title (catchy, romantic title)
+    - Duration (how long the date takes)
+    - Budget (cost range)
+    - Description (detailed description of the date)
+    - Activities (list of specific activities)
+    - Best Time (when to do this date)
+
+    IMPORTANT: 
+    - Use realistic venues and locations that exist in ${cityName}
+    - Prioritize romantic and memorable experiences
+    - Consider the partner's interests and preferences if provided
+    - Make the ideas sound current and achievable
+    - Use actual venue names from ${cityName}
+    - Include a variety of date types (outdoor, indoor, food, culture, adventure, etc.)
+
+    Format your response as a JSON array with exactly these fields: title, duration, budget, description, activities, bestTime.
+
+    Example format:
+    [
+      {
+        "title": "Sunset Rooftop Romance",
+        "duration": "3-4 hours",
+        "budget": "$80-120",
+        "description": "Watch the sunset from a romantic rooftop bar with craft cocktails and small plates, followed by a moonlit walk through the city.",
+        "activities": ["Rooftop drinks", "Sunset viewing", "City walk", "Photography"],
+        "bestTime": "Evening (6-10 PM)"
+      }
+    ]`;
+
+    console.log(`💡 Calling Groq API for date ideas in ${fullLocation}...`);
+
+    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful assistant that provides creative and romantic date ideas. Always respond with valid JSON arrays.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.8,
+      max_tokens: 3000
+    }, {
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const aiResponse = response.data.choices[0].message.content;
+    console.log(`✅ Groq API date ideas response: ${aiResponse.substring(0, 100)}...`);
+
+    // Try to parse the JSON response - handle multiple formats
+    try {
+      // First try to find JSON array in the response
+      let jsonMatch = aiResponse.match(/\[[\s\S]*?\]/);
+      if (!jsonMatch) {
+        // Try to find JSON after "```json" markers
+        jsonMatch = aiResponse.match(/```json\s*(\[[\s\S]*?\])\s*```/);
+        if (jsonMatch) {
+          jsonMatch = [jsonMatch[1]];
+        }
+      }
+      
+      if (jsonMatch) {
+        const dateIdeas = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(dateIdeas) && dateIdeas.length > 0) {
+          console.log(`🎉 Successfully parsed ${dateIdeas.length} date ideas from Groq`);
+          return dateIdeas.slice(0, 10);
+        }
+      }
+      
+      // If no JSON array found, try to parse the entire response as JSON
+      const dateIdeas = JSON.parse(aiResponse);
+      if (Array.isArray(dateIdeas) && dateIdeas.length > 0) {
+        console.log(`🎉 Successfully parsed ${dateIdeas.length} date ideas from Groq (full response)`);
+        return dateIdeas.slice(0, 10);
+      }
+    } catch (parseError) {
+      console.error('❌ Error parsing date ideas JSON:', parseError);
+      console.log('📝 Raw AI response for debugging:', aiResponse.substring(0, 500));
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ Groq API date ideas error:', error.response?.data || error.message);
+    return null;
+  }
+};
+
+// Rate limiting and caching helper
+let lastGroqCall = 0;
+const GROQ_RATE_LIMIT_DELAY = 30000; // 30 seconds between calls
+const CACHE_DURATION = 300000; // 5 minutes cache
+
+// Cache for events and date ideas
+const eventsCache = new Map();
+const dateIdeasCache = new Map();
+
+const canMakeGroqCall = () => {
+  const now = Date.now();
+  if (now - lastGroqCall < GROQ_RATE_LIMIT_DELAY) {
+    console.log('⏳ Rate limiting Groq API calls to avoid hitting limits');
+    return false;
+  }
+  lastGroqCall = now;
+  return true;
+};
+
+const getCachedEvents = (location) => {
+  const cacheKey = location.toLowerCase();
+  const cached = eventsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log('📋 Using cached events for:', location);
+    return cached.data;
+  }
+  return null;
+};
+
+const setCachedEvents = (location, data) => {
+  const cacheKey = location.toLowerCase();
+  eventsCache.set(cacheKey, {
+    data,
+    timestamp: Date.now()
+  });
+};
+
+const getCachedDateIdeas = (location) => {
+  const cacheKey = location.toLowerCase();
+  const cached = dateIdeasCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log('💡 Using cached date ideas for:', location);
+    return cached.data;
+  }
+  return null;
+};
+
+const setCachedDateIdeas = (location, data) => {
+  const cacheKey = location.toLowerCase();
+  dateIdeasCache.set(cacheKey, {
+    data,
+    timestamp: Date.now()
+  });
+};
+
+// Groq AI integration for events
+const callGroqForEvents = async (location, partnerProfile) => {
+  try {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    
+    if (!groqApiKey) {
+      console.warn('GROQ_API_KEY not found for events');
+      return null;
+    }
+
+    // Check rate limiting
+    if (!canMakeGroqCall()) {
+      console.log('⏳ Skipping Groq API call due to rate limiting');
+      return null;
+    }
+
+    const cityName = location.split(',')[0].trim();
+    const stateName = location.split(',')[1]?.trim() || '';
+    const fullLocation = stateName ? `${cityName}, ${stateName}` : cityName;
+
+    const partnerContext = partnerProfile?.name ? `
+    
+    PARTNER PREFERENCES:
+    - Partner Name: ${partnerProfile.name}
+    - Interests: ${partnerProfile.interests || 'Not specified'}
+    - Preferences: ${partnerProfile.preferences || 'Not specified'}
+    - Budget Range: ${partnerProfile.budget || 'Not specified'}
+    - Dietary Restrictions: ${partnerProfile.dietaryRestrictions || 'None'}
+    
+    Please consider these preferences when suggesting events.` : '';
+
+    const currentDate = new Date();
+    const futureDate = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000);
+    
+    const prompt = `Find 10 upcoming events happening in ${fullLocation} between ${currentDate.toLocaleDateString()} and ${futureDate.toLocaleDateString()}. These should be realistic events that typically happen in this city.${partnerContext}
+
+    For each event, provide:
+    - Event name (realistic event name)
+    - Date (specific date in MM/DD/YYYY format)
+    - Location/venue (specific venue name in ${cityName})
+    - Category (Food & Drink, Music, Art & Culture, Entertainment, Sports, etc.)
+    - Brief description (what the event is about and why it's great for couples)
+    - Cost (ticket price or "Free")
+
+    IMPORTANT: 
+    - Use realistic event names and venues that exist in ${cityName}
+    - Prioritize events that would be romantic or fun for couples
+    - Consider the partner's interests and preferences if provided
+    - Make the events sound current and realistic
+    - Use actual venue names from ${cityName}
+
+    Format your response as a JSON array with exactly these fields: name, date, location, category, description, cost.
+
+    Example format:
+    [
+      {
+        "name": "Jazz Night at Blue Note",
+        "date": "01/15/2025",
+        "location": "Blue Note Jazz Club",
+        "category": "Music",
+        "description": "Intimate jazz performance perfect for a romantic date night",
+        "cost": "$25-45"
+      },
+      {
+        "name": "Art Gallery Opening",
+        "date": "01/16/2025",
+        "location": "Guggenheim Museum",
+        "category": "Art & Culture",
+        "description": "Contemporary art exhibition opening with wine and hors d'oeuvres",
+        "cost": "Free"
+      }
+    ]`;
+
+    console.log(`🎯 Calling Groq API for real events in ${fullLocation}...`);
+
+    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a helpful assistant that provides real, current event information. Always respond with valid JSON arrays.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000
+    }, {
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const aiResponse = response.data.choices[0].message.content;
+    console.log(`✅ Groq API events response: ${aiResponse.substring(0, 100)}...`);
+
+    // Try to parse the JSON response
+    try {
+      const jsonMatch = aiResponse.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        const events = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(events) && events.length > 0) {
+          console.log(`🎉 Successfully parsed ${events.length} real events from Groq`);
+          return events.slice(0, 10);
+        }
+      }
+    } catch (parseError) {
+      console.error('❌ Error parsing events JSON:', parseError);
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ Groq API events error:', error.response?.data || error.message);
+    return null;
+  }
 };
 
 // Groq AI integration
