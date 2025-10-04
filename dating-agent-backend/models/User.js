@@ -23,6 +23,39 @@ const userSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
+    age: {
+      type: Number,
+      min: 18,
+      max: 100
+    },
+    bio: {
+      type: String,
+      maxlength: 500,
+      trim: true
+    },
+    neighborhood: {
+      type: String,
+      trim: true
+    },
+    travel_radius: {
+      type: Number,
+      min: 1,
+      max: 100,
+      default: 10
+    },
+    relationship_status: {
+      type: String,
+      enum: ['single', 'dating', 'in_relationship', 'engaged', 'married', ''],
+      default: 'single'
+    },
+    interests: [{
+      type: String,
+      trim: true
+    }],
+    budget: {
+      type: String,
+      enum: ['$20-40', '$40-80', '$80-150', '$150-300', '$300+', '']
+    },
     preferences: {
       budget_range: {
         type: String,

@@ -43,11 +43,31 @@ router.get('/profile', authenticateToken, async (req, res) => {
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, location, preferences } = req.body;
+    const { 
+      name, 
+      location, 
+      neighborhood,
+      travel_radius,
+      age, 
+      interests, 
+      budget, 
+      bio, 
+      relationship_status,
+      preferences 
+    } = req.body;
 
     const updateData = {};
-    if (name) updateData['profile.name'] = name;
-    if (location) updateData['profile.location'] = location;
+    if (name !== undefined) updateData['profile.name'] = name;
+    if (location !== undefined) updateData['profile.location'] = location;
+    if (neighborhood !== undefined) updateData['profile.neighborhood'] = neighborhood;
+    if (travel_radius !== undefined) updateData['profile.travel_radius'] = travel_radius;
+    if (age !== undefined) updateData['profile.age'] = age;
+    if (interests !== undefined) updateData['profile.interests'] = interests;
+    if (budget !== undefined && budget !== '') updateData['profile.budget'] = budget;
+    if (bio !== undefined) updateData['profile.bio'] = bio;
+    if (relationship_status !== undefined && relationship_status !== '') updateData['profile.relationship_status'] = relationship_status;
+    
+    console.log('🔧 Backend: Profile update data:', updateData);
     if (preferences) {
       Object.keys(preferences).forEach(key => {
         updateData[`profile.preferences.${key}`] = preferences[key];
@@ -68,6 +88,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     }
 
     console.log(`✏️ Updated profile for user: ${user.email}`);
+    console.log('🔧 Backend: Saved profile data:', user.profile);
 
     res.json({
       message: 'Profile updated successfully',

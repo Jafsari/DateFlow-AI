@@ -10,6 +10,129 @@ const router = express.Router();
 // Simple in-memory store for guest conversations
 const guestConversations = new Map();
 
+// Date flow endpoint
+router.post('/date-flow', authenticateToken, async (req, res) => {
+  try {
+    const { location, preferences } = req.body;
+    
+    if (!location) {
+      return res.status(400).json({
+        error: 'Location is required',
+        code: 'MISSING_LOCATION'
+      });
+    }
+
+    console.log(`🎯 Date flow request for location: ${location}`);
+
+    // Get user profile from the authenticated request
+    const userProfile = req.user ? {
+      name: req.user.name,
+      interests: req.user.interests,
+      budget: req.user.budget,
+      preferences: req.user.preferences
+    } : null;
+
+    // Get partner profile from request body (if available)
+    const partnerProfile = req.body.partner_profile || null;
+
+    // Call Groq API for personalized date flow
+    const dateFlow = await callGroqForDateFlow(location, userProfile, partnerProfile, preferences);
+
+    if (dateFlow && dateFlow.flow && dateFlow.flow.length > 0) {
+      console.log(`✅ Returning personalized date flow from Groq with ${dateFlow.flow.length} steps`);
+      res.json({
+        dateFlow: dateFlow,
+        location: location,
+        source: 'groq_api',
+        userProfile: userProfile,
+        partnerProfile: partnerProfile
+      });
+    } else {
+      console.log('⚠️ No date flow from Groq, returning fallback flow');
+      // Return fallback date flow if Groq fails
+      const cityName = location.split(',')[0];
+      const fallbackFlow = {
+        title: `Romantic Evening in ${cityName}`,
+        totalDuration: preferences?.duration || "3-4 hours",
+        totalBudget: preferences?.budget || "$60-80",
+        flow: [
+          {
+            step: 1,
+            phase: "Warm-Up",
+            activity: "Coffee & Conversation",
+            venue: `${cityName} Coffee House`,
+            address: `Downtown ${cityName}`,
+            duration: "30 minutes",
+            cost: "$15-25",
+            description: `Start your date with a cozy coffee at a local café in ${cityName}. This relaxed setting is perfect for easing into conversation and getting comfortable.`,
+            tips: "Choose a quiet corner for more intimate conversation"
+          },
+          {
+            step: 2,
+            phase: "Main Event",
+            activity: "Cultural Experience",
+            venue: `${cityName} Art Gallery`,
+            address: `${cityName} Arts District`,
+            duration: "2 hours",
+            cost: "$30-45",
+            description: `Explore ${cityName}'s vibrant art scene together. Walking through galleries provides natural conversation starters and shared experiences.`,
+            tips: "Discuss your favorite pieces to learn more about each other"
+          },
+          {
+            step: 3,
+            phase: "Closer",
+            activity: "Scenic Walk",
+            venue: `${cityName} Waterfront Park`,
+            address: `${cityName} Harbor`,
+            duration: "45 minutes",
+            cost: "Free",
+            description: `End your evening with a romantic walk along ${cityName}'s waterfront. The peaceful setting is perfect for deeper conversation.`,
+            tips: "Perfect time to share more personal stories and connect"
+          }
+        ],
+        restaurants: [
+          {
+            name: `${cityName} Bistro`,
+            address: `${cityName} Downtown`,
+            cuisine: "Contemporary American",
+            priceRange: "$25-40 per person",
+            description: "Cozy atmosphere perfect for intimate conversation",
+            reservation: "7:30 PM recommended"
+          }
+        ],
+        backupOptions: [
+          {
+            scenario: "Weather issue",
+            alternative: "Indoor museum visit",
+            venue: `${cityName} History Museum`,
+            cost: "$20-30"
+          }
+        ],
+        logistics: {
+          transportation: "Walking between nearby locations",
+          parking: "Street parking available downtown",
+          timing: "Start around 6:00 PM",
+          weather: "Check weather forecast for outdoor activities"
+        }
+      };
+
+      res.json({
+        dateFlow: fallbackFlow,
+        location: location,
+        source: 'fallback',
+        userProfile: userProfile,
+        partnerProfile: partnerProfile
+      });
+    }
+  } catch (error) {
+    console.error('❌ Date flow endpoint error:', error);
+    res.status(500).json({
+      error: 'Failed to generate date flow',
+      code: 'DATE_FLOW_ERROR'
+    });
+  }
+});
+
 // Date ideas endpoint
 router.get('/date-ideas', authenticateToken, async (req, res) => {
   try {
@@ -116,7 +239,7 @@ router.get('/date-ideas', authenticateToken, async (req, res) => {
 // Events endpoint
 router.get('/events', authenticateToken, async (req, res) => {
   try {
-    const { location } = req.query;
+    const { location, neighborhood, travel_radius } = req.query;
     
     if (!location) {
       return res.status(400).json({
@@ -125,7 +248,9 @@ router.get('/events', authenticateToken, async (req, res) => {
       });
     }
 
-    console.log(`📅 Events request for location: ${location}`);
+    const radius = travel_radius || '10';
+    const neighborhoodInfo = neighborhood ? ` (${neighborhood})` : '';
+    console.log(`📅 Events request for location: ${location}${neighborhoodInfo}, radius: ${radius} miles`);
 
     // Check cache first
     const cachedEvents = getCachedEvents(location);
@@ -142,8 +267,8 @@ router.get('/events', authenticateToken, async (req, res) => {
     // Get partner profile from query params (if available)
     const partnerProfile = req.query.partner_profile ? JSON.parse(req.query.partner_profile) : null;
 
-    // Call Groq API for real events
-    const events = await callGroqForEvents(location, partnerProfile);
+    // Call Groq API for real events with location preferences
+    const events = await callGroqForEvents(location, neighborhood, radius, partnerProfile);
 
     if (events && events.length > 0) {
       console.log(`✅ Returning ${events.length} real events from Groq`);
@@ -317,172 +442,358 @@ const generateAIResponse = (userMessage, context) => {
   
   // Use conversation context for more personalized responses
   if (messageCount === 1) {
-    if (message.includes('first date') || message.includes('coffee') || message.includes('lunch')) {
-      return "Great! For a first date, I'd recommend keeping it simple and comfortable. Coffee shops or casual lunch spots work perfectly. What's your budget range and how much time do you have available?";
-    }
-    
-    if (message.includes('restaurant') || message.includes('dinner')) {
-      return "Perfect! For a dinner date, consider the atmosphere and cuisine type. What kind of food do you both enjoy? Are you looking for something romantic, casual, or somewhere in between?";
+  if (message.includes('first date') || message.includes('coffee') || message.includes('lunch')) {
+      return "Great! Coffee or lunch works perfectly. What's your budget?";
+  }
+  
+  if (message.includes('restaurant') || message.includes('dinner')) {
+      return "Perfect! What cuisine do you both like?";
     }
     
     if (message.includes('help') || message.includes('plan') || message.includes('suggest')) {
-      return "I'm here to help you plan the perfect date! Tell me about your situation - what type of date are you planning, who you're going with, and what you're hoping to do. The more details you share, the better I can help!";
+      return "I'm here to help! What type of date are you planning?";
     }
     
-    return "Hi! I'm your AI dating assistant! 🎯 I can help you with date ideas, conversation starters, relationship advice, and more. What would you like to explore today?";
+    return "Hi! I'm your DateFlow AI assistant! 🎯 What would you like help with?";
   }
   
   // Build on previous conversation context
   if (conversationSummary.includes('dinner') && message.includes('italian')) {
-    return "Italian food is perfect for a romantic dinner! I'd suggest looking for a cozy trattoria with dim lighting. Would you prefer a traditional family-style place or something more modern? And have you thought about wine pairings?";
+    return "Italian is perfect! Cozy or modern spot?";
   }
   
   if (conversationSummary.includes('dinner') && message.includes('budget')) {
-    return "Great question about budget! For Italian restaurants, you can find excellent options at different price points. What's your comfort zone - are you thinking casual trattoria ($15-25 per person) or something more upscale ($40-60 per person)?";
+    return "What's your budget? Casual ($15-25) or upscale ($40-60)?";
   }
   
   if (message.includes('activity') || message.includes('what to do')) {
-    return "There are so many great date activities! Are you more into outdoor adventures, cultural experiences, or something more relaxed? I can suggest activities based on your interests and location.";
+    return "What interests you? Outdoor, cultural, or relaxed?";
   }
   
   if (message.includes('budget') || message.includes('cost') || message.includes('money')) {
-    return "Budget planning is important for any date. What's your preferred spending range? I can suggest great options for any budget - from free activities like walking tours to splurge-worthy experiences.";
+    return "What's your budget range?";
   }
   
   if (message.includes('location') || message.includes('where')) {
-    return "Location is key for a successful date! Are you looking for something close to home, or are you open to traveling? I can suggest venues based on your area and transportation preferences.";
+    return "Where are you located? Close to home or traveling?";
   }
   
   if (message.includes('weather') || message.includes('rain') || message.includes('outdoor')) {
-    return "Weather can definitely affect date planning! If it's going to rain, we can pivot to indoor activities like museums, cafes, or indoor markets. What's the forecast looking like?";
+    return "Rain coming? Let's pivot to indoor options.";
   }
   
   if (message.includes('second date') || message.includes('follow up')) {
-    return "Exciting! For a second date, you can step it up a bit. What did you enjoy about your first date? I can suggest activities that build on that experience or try something completely different.";
+    return "Second date! What did you enjoy about the first?";
   }
   
   // More contextual responses based on conversation flow
   if (messageCount > 1) {
     if (message.includes('yes') || message.includes('sounds good') || message.includes('perfect')) {
-      return "Excellent! I'm excited to help you plan this. What's the next detail we should work on - timing, reservations, or maybe some conversation starters for the date?";
+      return "Great! What's next?";
     }
     
     if (message.includes('no') || message.includes('not sure')) {
-      return "No worries! Let's explore other options. What aspects of dating are you most interested in? I can help with different types of dates, conversation tips, or relationship advice.";
+      return "No problem! What other aspects interest you?";
     }
   }
   
-  return "That sounds interesting! I'm here to help with all aspects of date planning - from choosing venues and activities to logistics and preparation. What specific aspect of your date would you like help with?";
+  return "Interesting! What specific part needs help?";
 };
 
-// Pokemon-specific AI response generation
-const generatePokemonAIResponse = (userMessage, context, pokemon) => {
-  const message = userMessage.toLowerCase();
-  
-  // Pokemon personalities
-  const pokemonPersonalities = {
-    charizard: {
-      emoji: '🔥',
-      name: 'Charizard',
-      style: 'enthusiastic, energetic, and passionate',
-      responses: {
-        help: "Alright, trainer! Charizard here! Ready to ignite your dating life? Tell me your fiery date ideas, and I'll help you make them legendary! Let's go!",
-        restaurant: "A blazing romantic dinner, eh? I'll find a place with a fiery ambiance and a menu that'll set your taste buds alight! How about a rooftop steakhouse with a view?",
-        activity: "Weeby activities? Let's make it epic! How about a competitive arcade date, or a visit to a specialty anime store for some rare finds? We'll make it a victory!",
-        budget: "Charizard is all about making it legendary! Tell me your budget range and I'll help you plan something that'll make your date's heart pound with excitement!",
-        location: "Location scouting time! Charizard can help you find the perfect spot that'll make your date unforgettable. What area are we exploring, trainer?"
-      }
-    },
-    blastoise: {
-      emoji: '💧',
-      name: 'Blastoise',
-      style: 'calm, thoughtful, and strategic',
-      responses: {
-        help: "Greetings, trainer. Blastoise is ready to assist. Let's dive deep into planning the perfect, smooth date. What kind of aquatic adventures or calm evenings do you have in mind?",
-        restaurant: "A calm and romantic dinner. I'll locate a serene waterfront restaurant with exquisite seafood. Perhaps a quiet jazz bar afterwards to keep the evening flowing smoothly?",
-        activity: "Weeby activities? Let's find something cool and collected. A cozy manga cafe, or perhaps a visit to an art gallery featuring Japanese artists? A refreshing experience awaits.",
-        budget: "Blastoise approaches budget planning with precision. Let's carefully plan your spending to ensure a smooth, stress-free experience. What's your comfortable range?",
-        location: "Strategic location planning. I'll help you find a peaceful spot that ensures smooth navigation and a memorable experience. What's your preferred area?"
-      }
-    },
-    venusaur: {
-      emoji: '🌿',
-      name: 'Venusaur',
-      style: 'nurturing, wise, and harmonious',
-      responses: {
-        help: "Hello there, trainer. Venusaur is here to help your love bloom. Share your ideas for a natural, harmonious date, and I'll cultivate the perfect plan for you. Let's grow together!",
-        restaurant: "A nurturing romantic dinner. I'll suggest a farm-to-table restaurant with organic options, or a botanical garden cafe. Let's find a place where your connection can truly blossom.",
-        activity: "Weeby activities? Let's cultivate a unique experience. A visit to a serene Japanese garden, or a workshop on traditional Japanese crafts? A date that fosters growth and appreciation.",
-        budget: "Venusaur believes in sustainable, meaningful experiences. Let's plan something that grows your connection without breaking the bank. What's your comfortable range?",
-        location: "Harmonious location planning. I'll help you find a place where nature and romance meet, creating the perfect environment for your connection to flourish."
-      }
-    }
-  };
-
-  const personality = pokemonPersonalities[pokemon] || pokemonPersonalities.charizard;
-  
-  // Generate Pokemon-specific responses
-  if (message.includes('help') || message.includes('plan')) {
-    return personality.responses.help;
-  }
-  
-  if (message.includes('restaurant') || message.includes('dinner') || message.includes('food')) {
-    return personality.responses.restaurant;
-  }
-  
-  if (message.includes('activity') || message.includes('fun') || message.includes('do')) {
-    return personality.responses.activity;
-  }
-  
-  if (message.includes('budget') || message.includes('money') || message.includes('cost')) {
-    return personality.responses.budget;
-  }
-  
-  if (message.includes('location') || message.includes('where') || message.includes('place')) {
-    return personality.responses.location;
-  }
-  
-  if (message.includes('anime') || message.includes('kawaii') || message.includes('weeby')) {
-    return `${personality.emoji} ${personality.name} loves anime culture too! Let's plan something super kawaii and weeby that'll make your date absolutely adorable! ✨`;
-  }
-  
-  if (message.includes('pokemon') || message.includes('trainer')) {
-    return `${personality.emoji} As your ${personality.name}, I'm here to help you become the ultimate dating trainer! Let's plan a date that's as legendary as a Pokemon battle!`;
-  }
-  
-  // Default response with Pokemon personality
-  return `${personality.emoji} ${personality.name} is ready to help with your date planning! I'm ${personality.style}. What specific aspect of your date would you like to work on?`;
-};
 
 // Fiona fallback response generator
 const generateFionaResponse = (userMessage, context) => {
   const message = userMessage.toLowerCase();
   
   if (message.includes('help') || message.includes('plan')) {
-    return "Hi there! I'm Fiona, your personal date planning assistant! 💕 I'd love to help you plan something special. What kind of date are you thinking about? Are you looking for something romantic, fun, or maybe something unique?";
+    return "Hi! I'm Fiona! 💕 What kind of date are you thinking?";
   }
   
   if (message.includes('restaurant') || message.includes('dinner') || message.includes('food')) {
-    return "Great choice! A romantic dinner is always wonderful! 💕 What's your budget range and what kind of cuisine do you both enjoy? I can suggest some amazing restaurants that would be perfect for your date!";
+    return "Great choice! 💕 What's your budget and cuisine preference?";
   }
   
   if (message.includes('activity') || message.includes('fun') || message.includes('do')) {
-    return "There are so many fun date activities to choose from! 🎉 Are you thinking indoor or outdoor? Something adventurous like hiking, or more relaxed like a museum or art gallery? What are your interests?";
+    return "Fun activities! 🎉 Indoor or outdoor?";
   }
   
   if (message.includes('budget') || message.includes('money') || message.includes('cost')) {
-    return "Budget planning is so important! 💰 Don't worry, I can help you plan something amazing for any budget. What's your comfortable spending range? I have great ideas from free activities to splurge-worthy experiences!";
+    return "Budget planning! 💰 What's your spending range?";
   }
   
   if (message.includes('location') || message.includes('where') || message.includes('place')) {
-    return "Location is key for a perfect date! 🌟 Are you looking for something close to home, or are you open to traveling? I can suggest venues based on your area and what kind of atmosphere you're going for!";
+    return "Location key! 🌟 Close to home or traveling?";
   }
   
   if (message.includes('romantic') || message.includes('special')) {
-    return "Aww, how sweet! 💖 I love helping with romantic dates! Tell me more about what you're planning - is it a special occasion, or just a lovely evening together? I have some magical ideas!";
+    return "Sweet! 💖 Special occasion or lovely evening?";
   }
   
-  return "Hi! I'm Fiona, and I'm here to help make your date planning easy and fun! 💕 Whether you're planning a first date, anniversary, or just a special evening, I'd love to help. What can we work on together?";
+  return "Hi! I'm Fiona! 💕 What can we work on?";
+};
+
+// Groq AI integration for date flow planning
+const callGroqForDateFlow = async (location, userProfile, partnerProfile, preferences) => {
+  try {
+    const groqApiKey = process.env.GROQ_API_KEY;
+    
+    if (!groqApiKey) {
+      console.warn('GROQ_API_KEY not found for date flow');
+      return null;
+    }
+
+    // Check rate limiting
+    if (!canMakeGroqCall()) {
+      console.log('⏳ Skipping Groq API call due to rate limiting');
+      return null;
+    }
+
+    const cityName = location.split(',')[0].trim();
+    const stateName = location.split(',')[1]?.trim() || '';
+    const fullLocation = stateName ? `${cityName}, ${stateName}` : cityName;
+
+    const userContext = userProfile ? `
+USER PROFILE:
+- Name: ${userProfile.name || 'User'}
+- Interests: ${userProfile.interests || 'Not specified'}
+- Budget: ${userProfile.budget || 'Not specified'}
+- Location: ${fullLocation}
+- Preferences: ${userProfile.preferences || 'Not specified'}` : '';
+
+    const partnerContext = partnerProfile?.name ? `
+
+PARTNER PROFILE:
+- Partner Name: ${partnerProfile.name}
+- Interests: ${partnerProfile.interests || 'Not specified'}
+- Preferences: ${partnerProfile.preferences || 'Not specified'}
+- Budget Range: ${partnerProfile.budget || 'Not specified'}
+- Dietary Restrictions: ${partnerProfile.dietaryRestrictions || 'None'}` : '';
+
+    const preferencesContext = preferences ? `
+
+DATE PREFERENCES:
+- Duration: ${preferences.duration || 'Not specified'}
+- Budget: ${preferences.budget || 'Not specified'}
+- Style: ${preferences.style || 'Not specified'}
+- Activities: ${preferences.activities || 'Not specified'}` : '';
+
+    const prompt = `Create a personalized date flow for ${fullLocation}. This should be a detailed, step-by-step itinerary that considers all the provided information.${userContext}${partnerContext}${preferencesContext}
+
+    Create a comprehensive date flow with:
+    1. **Warm-Up Activity** (15-30 minutes) - Something relaxed to start
+    2. **Main Event** (1-2 hours) - The primary activity/experience
+    3. **Optional Closer** (30-60 minutes) - Something to end on a high note
+    4. **Restaurant Recommendations** - Specific restaurants in ${cityName} that fit the vibe
+    5. **Timing & Logistics** - Exact durations and travel time between locations
+    6. **Budget Breakdown** - Cost estimates for each part
+    7. **Backup Options** - Alternative activities if weather/availability changes
+
+    IMPORTANT:
+    - Use REAL venues and restaurants in ${cityName}
+    - Consider both user and partner preferences
+    - Make it realistic and achievable
+    - Include specific venue names and addresses when possible
+    - Factor in travel time between locations
+    - Consider the budget constraints
+    - Make it romantic and memorable
+
+    Format your response as a JSON object with this exact structure:
+    {
+      "title": "Romantic Evening in [City]",
+      "totalDuration": "3-4 hours",
+      "totalBudget": "$60-80",
+      "flow": [
+        {
+          "step": 1,
+          "phase": "Warm-Up",
+          "activity": "Activity name",
+          "venue": "Specific venue name",
+          "address": "Full address",
+          "duration": "30 minutes",
+          "cost": "$15-25",
+          "description": "Detailed description of what to do",
+          "tips": "Helpful tips for this activity"
+        },
+        {
+          "step": 2,
+          "phase": "Main Event",
+          "activity": "Activity name",
+          "venue": "Specific venue name", 
+          "address": "Full address",
+          "duration": "2 hours",
+          "cost": "$30-45",
+          "description": "Detailed description of what to do",
+          "tips": "Helpful tips for this activity"
+        },
+        {
+          "step": 3,
+          "phase": "Closer",
+          "activity": "Activity name",
+          "venue": "Specific venue name",
+          "address": "Full address", 
+          "duration": "45 minutes",
+          "cost": "$15-20",
+          "description": "Detailed description of what to do",
+          "tips": "Helpful tips for this activity"
+        }
+      ],
+      "restaurants": [
+        {
+          "name": "Restaurant name",
+          "address": "Full address",
+          "cuisine": "Type of cuisine",
+          "priceRange": "$20-35 per person",
+          "description": "Why this fits the date",
+          "reservation": "Recommended reservation time"
+        }
+      ],
+      "backupOptions": [
+        {
+          "scenario": "Weather issue",
+          "alternative": "Indoor alternative activity",
+          "venue": "Backup venue name",
+          "cost": "Cost estimate"
+        }
+      ],
+      "logistics": {
+        "transportation": "Best way to get around",
+        "parking": "Parking recommendations",
+        "timing": "Best time to start",
+        "weather": "Weather considerations"
+      }
+    }`;
+
+    console.log(`🎯 Calling Groq API for personalized date flow in ${fullLocation}...`);
+
+    const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a professional date planning assistant. Create detailed, personalized date flows with specific venues and realistic logistics. Always respond with valid JSON.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 4000
+    }, {
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const aiResponse = response.data.choices[0].message.content;
+    console.log(`✅ Groq API date flow response: ${aiResponse.substring(0, 100)}...`);
+
+      // Try to parse the JSON response - handle multiple formats with better error handling
+      try {
+        console.log('📝 Full Groq response length:', aiResponse.length);
+        
+        // Clean the response first - remove any trailing incomplete JSON
+        let cleanedResponse = aiResponse.trim();
+        
+        // Remove any text before the first [ or {
+        const arrayStart = cleanedResponse.indexOf('[');
+        const objectStart = cleanedResponse.indexOf('{');
+        const startIndex = Math.min(
+          arrayStart === -1 ? Infinity : arrayStart,
+          objectStart === -1 ? Infinity : objectStart
+        );
+        
+        if (startIndex !== Infinity) {
+          cleanedResponse = cleanedResponse.substring(startIndex);
+        }
+        
+        // Remove any text after the last ] or }
+        const arrayEnd = cleanedResponse.lastIndexOf(']');
+        const objectEnd = cleanedResponse.lastIndexOf('}');
+        const endIndex = Math.max(arrayEnd, objectEnd);
+        
+        if (endIndex !== -1) {
+          cleanedResponse = cleanedResponse.substring(0, endIndex + 1);
+        }
+        
+        // Try to fix common JSON issues
+        cleanedResponse = cleanedResponse
+          .replace(/,\s*}/g, '}')  // Remove trailing commas before closing braces
+          .replace(/,\s*]/g, ']')  // Remove trailing commas before closing brackets
+          .replace(/}\s*{/g, '},{') // Fix missing commas between objects
+          .replace(/]\s*\[/g, '],[') // Fix missing commas between arrays
+          .replace(/"\s*\n\s*"/g, '",\n"') // Fix missing commas between string properties
+          .replace(/}\s*\n\s*"/g, '},\n"') // Fix missing commas between object and string
+          .replace(/]\s*\n\s*"/g, '],\n"') // Fix missing commas between array and string
+          .replace(/,\s*,/g, ',') // Remove double commas
+          .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas before closing brackets/braces
+      
+      // First try to find JSON object in the response with better regex
+      let jsonMatch = cleanedResponse.match(/\{[\s\S]*?\}(?=\s*$|\s*```|\s*$)/);
+      if (!jsonMatch) {
+        // Try to find JSON after "```json" markers
+        jsonMatch = cleanedResponse.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+        if (jsonMatch) {
+          jsonMatch = [jsonMatch[1]];
+        }
+      }
+      
+      // If still no match, try to find any JSON object that looks complete
+      if (!jsonMatch) {
+        const jsonStart = cleanedResponse.indexOf('{');
+        if (jsonStart !== -1) {
+          // Find the last closing brace to get a complete JSON object
+          let braceCount = 0;
+          let jsonEnd = jsonStart;
+          for (let i = jsonStart; i < cleanedResponse.length; i++) {
+            if (cleanedResponse[i] === '{') braceCount++;
+            if (cleanedResponse[i] === '}') braceCount--;
+            if (braceCount === 0) {
+              jsonEnd = i + 1;
+              break;
+            }
+          }
+          if (braceCount === 0) {
+            jsonMatch = [cleanedResponse.substring(jsonStart, jsonEnd)];
+          }
+        }
+      }
+      
+      if (jsonMatch) {
+        try {
+          const dateFlow = JSON.parse(jsonMatch[0]);
+          if (dateFlow && dateFlow.flow && Array.isArray(dateFlow.flow)) {
+            console.log(`🎉 Successfully parsed date flow from Groq with ${dateFlow.flow.length} steps`);
+            return dateFlow;
+          }
+        } catch (parseError) {
+          console.error('❌ Error parsing matched JSON:', parseError.message);
+          console.log('📝 Problematic JSON:', jsonMatch[0].substring(0, 300));
+        }
+      }
+      
+      // If no JSON object found, try to parse the entire cleaned response as JSON
+      try {
+        const dateFlow = JSON.parse(cleanedResponse);
+        if (dateFlow && dateFlow.flow && Array.isArray(dateFlow.flow)) {
+          console.log(`🎉 Successfully parsed date flow from Groq (full response) with ${dateFlow.flow.length} steps`);
+          return dateFlow;
+        }
+      } catch (parseError) {
+        console.error('❌ Error parsing full response:', parseError.message);
+      }
+      
+    } catch (parseError) {
+      console.error('❌ Error in JSON parsing process:', parseError);
+      console.log('📝 Raw AI response for debugging:', aiResponse.substring(0, 1000));
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ Groq API date flow error:', error.response?.data || error.message);
+    return null;
+  }
 };
 
 // Groq AI integration for date ideas
@@ -576,28 +887,42 @@ const callGroqForDateIdeas = async (location, partnerProfile) => {
 
     // Try to parse the JSON response - handle multiple formats
     try {
-      // First try to find JSON array in the response
-      let jsonMatch = aiResponse.match(/\[[\s\S]*?\]/);
-      if (!jsonMatch) {
-        // Try to find JSON after "```json" markers
-        jsonMatch = aiResponse.match(/```json\s*(\[[\s\S]*?\])\s*```/);
-        if (jsonMatch) {
-          jsonMatch = [jsonMatch[1]];
-        }
+      // Clean the response first
+      let cleanedResponse = aiResponse.trim();
+      
+      // Remove any text before the first [ or {
+      const arrayStart = cleanedResponse.indexOf('[');
+      const objectStart = cleanedResponse.indexOf('{');
+      const startIndex = Math.min(
+        arrayStart === -1 ? Infinity : arrayStart,
+        objectStart === -1 ? Infinity : objectStart
+      );
+      
+      if (startIndex !== Infinity) {
+        cleanedResponse = cleanedResponse.substring(startIndex);
       }
       
-      if (jsonMatch) {
-        const dateIdeas = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(dateIdeas) && dateIdeas.length > 0) {
-          console.log(`🎉 Successfully parsed ${dateIdeas.length} date ideas from Groq`);
-          return dateIdeas.slice(0, 10);
-        }
+      // Remove any text after the last ] or }
+      const arrayEnd = cleanedResponse.lastIndexOf(']');
+      const objectEnd = cleanedResponse.lastIndexOf('}');
+      const endIndex = Math.max(arrayEnd, objectEnd);
+      
+      if (endIndex !== -1) {
+        cleanedResponse = cleanedResponse.substring(0, endIndex + 1);
       }
       
-      // If no JSON array found, try to parse the entire response as JSON
-      const dateIdeas = JSON.parse(aiResponse);
+      // Fix common JSON issues
+      cleanedResponse = cleanedResponse
+        .replace(/,\s*}/g, '}')  // Remove trailing commas before closing braces
+        .replace(/,\s*]/g, ']')  // Remove trailing commas before closing brackets
+        .replace(/}\s*{/g, '},{') // Fix missing commas between objects
+        .replace(/]\s*\[/g, '],[') // Fix missing commas between arrays
+        .replace(/,(\s*[}\]])/g, '$1'); // Remove trailing commas before closing brackets/braces
+      
+      // Try to parse the cleaned JSON
+      const dateIdeas = JSON.parse(cleanedResponse);
       if (Array.isArray(dateIdeas) && dateIdeas.length > 0) {
-        console.log(`🎉 Successfully parsed ${dateIdeas.length} date ideas from Groq (full response)`);
+        console.log(`🎉 Successfully parsed ${dateIdeas.length} date ideas from Groq`);
         return dateIdeas.slice(0, 10);
       }
     } catch (parseError) {
@@ -614,12 +939,30 @@ const callGroqForDateIdeas = async (location, partnerProfile) => {
 
 // Rate limiting and caching helper
 let lastGroqCall = 0;
-const GROQ_RATE_LIMIT_DELAY = 30000; // 30 seconds between calls
+const GROQ_RATE_LIMIT_DELAY = 5000; // 5 seconds between calls
 const CACHE_DURATION = 300000; // 5 minutes cache
 
-// Cache for events and date ideas
+// Cache for events and date ideas with expiration
 const eventsCache = new Map();
 const dateIdeasCache = new Map();
+const dateFlowCache = new Map();
+
+// Cache management functions
+const getCachedData = (cache, key) => {
+  const cached = cache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data;
+  }
+  cache.delete(key); // Remove expired cache
+  return null;
+};
+
+const setCachedData = (cache, key, data) => {
+  cache.set(key, {
+    data: data,
+    timestamp: Date.now()
+  });
+};
 
 const canMakeGroqCall = () => {
   const now = Date.now();
@@ -668,7 +1011,7 @@ const setCachedDateIdeas = (location, data) => {
 };
 
 // Groq AI integration for events
-const callGroqForEvents = async (location, partnerProfile) => {
+const callGroqForEvents = async (location, neighborhood, radius, partnerProfile) => {
   try {
     const groqApiKey = process.env.GROQ_API_KEY;
     
@@ -687,6 +1030,9 @@ const callGroqForEvents = async (location, partnerProfile) => {
     const stateName = location.split(',')[1]?.trim() || '';
     const fullLocation = stateName ? `${cityName}, ${stateName}` : cityName;
 
+    const neighborhoodInfo = neighborhood ? ` in the ${neighborhood} area` : '';
+    const radiusInfo = radius ? ` within ${radius} miles of ${neighborhood || cityName}` : '';
+    
     const partnerContext = partnerProfile?.name ? `
     
     PARTNER PREFERENCES:
@@ -695,13 +1041,15 @@ const callGroqForEvents = async (location, partnerProfile) => {
     - Preferences: ${partnerProfile.preferences || 'Not specified'}
     - Budget Range: ${partnerProfile.budget || 'Not specified'}
     - Dietary Restrictions: ${partnerProfile.dietaryRestrictions || 'None'}
+    - Neighborhood: ${partnerProfile.neighborhood || 'Not specified'}
+    - Travel Radius: ${partnerProfile.travel_radius || '10'} miles
     
     Please consider these preferences when suggesting events.` : '';
 
     const currentDate = new Date();
     const futureDate = new Date(currentDate.getTime() + 14 * 24 * 60 * 60 * 1000);
     
-    const prompt = `Find 10 upcoming events happening in ${fullLocation} between ${currentDate.toLocaleDateString()} and ${futureDate.toLocaleDateString()}. These should be realistic events that typically happen in this city.${partnerContext}
+    const prompt = `Find 10 upcoming events happening in ${fullLocation}${neighborhoodInfo}${radiusInfo} between ${currentDate.toLocaleDateString()} and ${futureDate.toLocaleDateString()}. These should be realistic events that typically happen in this area and be convenient for someone living in ${neighborhood || cityName}.${partnerContext}
 
     For each event, provide:
     - Event name (realistic event name)
@@ -818,10 +1166,23 @@ IMPORTANT: You have access to previous conversation history. Use this context to
 
     // Add user profile context if available
     if (context && context.userProfile) {
+      const userProfile = context.userProfile;
+      const location = userProfile.location || userProfile.user?.profile?.location || 'Unknown';
+      const neighborhood = userProfile.neighborhood || userProfile.user?.profile?.neighborhood || '';
+      const travelRadius = userProfile.travel_radius || userProfile.user?.profile?.travel_radius || '10';
+      
       fionaPrompt += `\n\nUSER PROFILE CONTEXT:
 - User preferences: ${JSON.stringify(context.userProfile)}
 - Current conversation context: ${JSON.stringify(context.currentConversation?.context || {})}
 - Recent conversation summaries: ${JSON.stringify(context.recentContext || [])}
+
+LOCATION PREFERENCES (CRITICAL - USE HEAVILY):
+- Current Location: ${location}
+- Neighborhood: ${neighborhood}
+- Travel Radius: ${travelRadius} miles
+- IMPORTANT: Always prioritize recommendations within ${travelRadius} miles of ${neighborhood ? neighborhood + ', ' : ''}${location}
+- Focus on local venues, restaurants, and activities in ${neighborhood ? neighborhood : location.split(',')[0]}
+- Consider travel time and convenience for the user's preferred radius
 
 Use this information to provide personalized recommendations that match the user's preferences and build on previous conversations.`;
     }
@@ -837,6 +1198,8 @@ PARTNER DETAILS:
 - Dietary Restrictions: ${partner.dietaryRestrictions || 'None specified'}
 - Budget Range: ${partner.budget || 'Not specified'}
 - Location: ${partner.location || 'Not specified'}
+- Neighborhood: ${partner.neighborhood || 'Not specified'}
+- Travel Radius: ${partner.travel_radius || '10'} miles
 
 SUBTLE PERSONALIZATION GUIDELINES:
 1. Only reference partner details when directly relevant to the user's question
@@ -850,16 +1213,20 @@ Remember: The user's current question and needs come first. Partner profile shou
     }
 
     fionaPrompt += `\n\nRESPONSE GUIDELINES:
-- Keep responses conversational, helpful, and under 30 words
-- Always be encouraging and focus on creating meaningful connections
-- Focus on the user's immediate question first, then add subtle personalization if relevant
-- Only reference partner details when they directly enhance the answer
-- Don't force partner information into responses that don't need it
-- When asked about your partner, provide a warm, personalized summary of their profile information
+- CRITICAL: Keep responses to MAXIMUM 25 words - be concise but complete
+- Respond with 1-2 short sentences maximum, finish your thoughts completely
+- ALWAYS make specific recommendations instead of asking users to provide details
+- Be proactive - suggest restaurants, times, and activities directly
+- NEVER ask users to tell you restaurant names, dates, or times
 - NEVER use emojis, symbols, or special characters in responses as they break text-to-speech
 - Use only plain text with standard punctuation (periods, commas, question marks)
-- Keep responses concise and to the point
-- Prioritize helpful general advice over forced personalization`;
+- Examples: "Meet at the High Line at 5PM, then head to Momofuku Noodle Bar for dinner at 7PM" or "Try Blue Hill at 8PM, then Central Park walk"
+- Make complete recommendations, don't get cut off mid-sentence
+
+DATE FLOW GENERATION:
+- When user shows satisfaction with the plan (says "perfect", "sounds good", "let's do it", "that works", etc.)
+- Respond with: "Perfect! This plan works. I'll generate your DateFlow now."
+- This triggers automatic DateFlow creation for download and sharing`;
 
     // Build conversation context
     const messages = [
@@ -887,8 +1254,8 @@ Remember: The user's current question and needs come first. Partner profile shou
         const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
           model: 'llama-3.1-8b-instant', // Using current Llama 3.1 model
           messages: messages,
-          max_tokens: 80, // Reduced token limit for shorter responses
-          temperature: 0.7,
+          max_tokens: 40, // Allow completion of thoughts - max 25 words
+          temperature: 0.3, // Lower temperature for more consistent short responses
           top_p: 0.9
         }, {
       headers: {
@@ -909,14 +1276,14 @@ Remember: The user's current question and needs come first. Partner profile shou
     
     console.log('🧹 Cleaned response for TTS:', aiResponse);
     
-    // Check if response mentions restaurants and add Resy integration
-    if (aiResponse.toLowerCase().includes('restaurant') || 
-        aiResponse.toLowerCase().includes('dinner') || 
-        aiResponse.toLowerCase().includes('eat') ||
-        aiResponse.toLowerCase().includes('food')) {
-      
-      // Add Resy integration message
-      aiResponse += "\n\n🔍 I can help you check availability and make reservations directly! Just tell me the restaurant name, date, and time you'd like, and I'll handle the booking for you.";
+    // Check if user is satisfied with the plan and trigger DateFlow generation
+    const userMessageLower = userMessage.toLowerCase();
+    const satisfactionKeywords = ['perfect', 'sounds good', 'let\'s do it', 'that works', 'okay', 'yes', 'great', 'awesome', 'love it'];
+    
+    if (satisfactionKeywords.some(keyword => userMessageLower.includes(keyword)) && 
+        aiResponse.includes('This plan works')) {
+      console.log('🎯 User satisfied with plan - DateFlow generation triggered');
+      // The frontend will detect this response and automatically generate DateFlow
     }
     
     return aiResponse;
@@ -1099,7 +1466,7 @@ router.post('/', authenticateToken, async (req, res) => {
         // Build context for AI response
         const context = await buildContext(userId, conversation, partner_profile);
         aiResponse = await callGroqAPI(message, context, conversation.messages);
-        aiResponse += "\n\nI'd love to help you make a reservation! Could you please provide the restaurant name, date, and time you'd like? For example: 'Book Le Bernardin for Saturday at 7:30 PM for 2 people'";
+        aiResponse += "\n\nI'll help you find the perfect restaurant!";
       }
     } else {
       // Build context for AI response
@@ -2084,6 +2451,297 @@ const makeRealOpenTableBooking = async (bookingData) => {
       error: error.message
     };
   }
+};
+
+// POST /api/chat/generate-dateflow - Generate DateFlow from conversation context
+router.post('/generate-dateflow', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { conversationId } = req.body;
+    
+    if (!conversationId) {
+      return res.status(400).json({
+        error: 'Conversation ID is required',
+        code: 'MISSING_CONVERSATION_ID'
+      });
+    }
+
+    console.log(`🎯 Generating DateFlow for conversation: ${conversationId}`);
+
+    // Get the conversation from database
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      user_id: userId
+    });
+
+    if (!conversation) {
+      return res.status(404).json({
+        error: 'Conversation not found',
+        code: 'CONVERSATION_NOT_FOUND'
+      });
+    }
+
+    // Extract date plan from conversation messages
+    const messages = conversation.messages || [];
+    const planDetails = extractPlanFromMessages(messages);
+    
+    // Get user and partner profiles
+    const user = await User.findById(userId).select('-password_hash');
+    const userProfile = user?.profile || {};
+    
+    // Generate DateFlow using Groq API
+    const dateFlow = await callGroqForDateFlow(
+      userProfile.location || 'New York, NY',
+      userProfile,
+      null, // Partner profile not available in this context
+      {
+        duration: planDetails.duration || "3-4 hours",
+        budget: userProfile.budget || "$$",
+        style: "romantic",
+        activities: planDetails.activities || []
+      }
+    );
+
+    if (dateFlow && dateFlow.flow && dateFlow.flow.length > 0) {
+      console.log(`✅ Generated DateFlow with ${dateFlow.flow.length} steps`);
+      res.json({
+        success: true,
+        dateFlow: dateFlow,
+        location: userProfile.location || 'New York, NY',
+        source: 'conversation_context'
+      });
+    } else {
+      // Create fallback DateFlow from conversation context
+      const fallbackFlow = createFallbackDateFlow(planDetails, userProfile.location || 'New York, NY', userProfile, null);
+      console.log(`⚠️ Using fallback DateFlow`);
+      res.json({
+        success: true,
+        dateFlow: fallbackFlow,
+        location: userProfile.location || 'New York, NY',
+        source: 'fallback'
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ DateFlow generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate DateFlow',
+      code: 'DATE_FLOW_GENERATION_ERROR'
+    });
+  }
+});
+
+// Helper function to extract plan details from conversation messages
+const extractPlanFromMessages = (messages) => {
+  const plan = {
+    activities: [],
+    duration: "3-4 hours",
+    budget: "$$"
+  };
+
+  // Look for specific mentions in the conversation
+  messages.forEach(msg => {
+    if (msg.role === 'assistant') {
+      const content = msg.content.toLowerCase();
+      
+      // Extract activities
+      if (content.includes('high line')) {
+        plan.activities.push('High Line walk');
+      }
+      if (content.includes('momofuku') || content.includes('noodle bar')) {
+        plan.activities.push('Momofuku Noodle Bar dinner');
+      }
+      if (content.includes('central park')) {
+        plan.activities.push('Central Park stroll');
+      }
+      if (content.includes('cooking class')) {
+        plan.activities.push('Korean cooking class');
+      }
+      if (content.includes('carbone')) {
+        plan.activities.push('Carbone dinner');
+        plan.budget = "$$$";
+      }
+      if (content.includes('broadway') || content.includes('hadestown') || content.includes('show')) {
+        plan.activities.push('Broadway show: Hadestown');
+        plan.budget = "$$$";
+      }
+      if (content.includes('walter kerr') || content.includes('theatre')) {
+        plan.activities.push('Walter Kerr Theatre show');
+      }
+      if (content.includes('sardi')) {
+        plan.activities.push('Sardi\'s Restaurant drinks');
+      }
+      
+      // Extract times
+      if (content.includes('5:30pm') || content.includes('5:30 pm')) {
+        plan.duration = "4-5 hours";
+      }
+      if (content.includes('6:30pm') || content.includes('6:30 pm')) {
+        plan.duration = "4-5 hours";
+      }
+      if (content.includes('8pm') || content.includes('8:00pm')) {
+        plan.duration = "4-5 hours";
+      }
+      if (content.includes('7pm') || content.includes('7:00pm')) {
+        plan.duration = "3-4 hours";
+      }
+    }
+    
+    // Also check user messages for activity mentions
+    if (msg.role === 'user') {
+      const content = msg.content.toLowerCase();
+      
+      if (content.includes('broadway') || content.includes('hadestown')) {
+        plan.activities.push('Broadway show: Hadestown');
+        plan.budget = "$$$";
+      }
+      if (content.includes('carbone')) {
+        plan.activities.push('Carbone dinner');
+        plan.budget = "$$$";
+      }
+    }
+  });
+
+  return plan;
+};
+
+// Helper function to create fallback DateFlow
+const createFallbackDateFlow = (planDetails, location, userProfile = null, partnerProfile = null) => {
+  const cityName = location.split(',')[0];
+  
+  // Generate personalized title with user and partner names
+  const userName = userProfile?.name || 'You';
+  const partnerName = partnerProfile?.name || 'Your Date';
+  
+  let title;
+  if (userName !== 'You' && partnerName && partnerName !== 'Your Date') {
+    title = `${userName} & ${partnerName}'s Perfect Date`;
+  } else if (userName !== 'You') {
+    title = `${userName}'s Perfect Date Plan`;
+  } else {
+    title = `Perfect Date in ${cityName}`;
+  }
+
+  // Create a more comprehensive fallback based on extracted activities
+  const flow = [];
+  
+  // Step 1: Pre-activity (if mentioned in conversation)
+  if (planDetails.activities.some(activity => 
+    activity.toLowerCase().includes('carbone') || 
+    activity.toLowerCase().includes('dinner') ||
+    activity.toLowerCase().includes('restaurant'))) {
+    flow.push({
+      step: 1,
+      phase: "Pre-Show Dinner",
+      activity: "Upscale Italian dinner at Carbone",
+      venue: "Carbone",
+      address: "181 Thompson Street, New York, NY",
+      duration: "1.5 hours",
+      cost: "$80-120",
+      description: "Enjoy an elegant pre-show dinner at this acclaimed Italian-American restaurant.",
+      tips: "Make reservations well in advance - this place is popular!"
+    });
+  } else {
+    flow.push({
+      step: 1,
+      phase: "Meet & Greet",
+      activity: "Meet at theatre district",
+      venue: "Times Square",
+      address: "Times Square, New York, NY",
+      duration: "30 minutes",
+      cost: "Free",
+      description: "Meet in the bustling theatre district and soak up the Broadway atmosphere.",
+      tips: "Arrive a few minutes early to find each other easily"
+    });
+  }
+
+  // Step 2: Main Activity (Broadway show if mentioned)
+  if (planDetails.activities.some(activity => 
+    activity.toLowerCase().includes('broadway') || 
+    activity.toLowerCase().includes('hadestown') ||
+    activity.toLowerCase().includes('show'))) {
+    flow.push({
+      step: 2,
+      phase: "Main Event",
+      activity: "Broadway Show: Hadestown",
+      venue: "Walter Kerr Theatre",
+      address: "219 West 48th Street, New York, NY",
+      duration: "2.5 hours",
+      cost: "$100-300",
+      description: "Experience the critically-acclaimed musical Hadestown, a modern retelling of the ancient Greek myth.",
+      tips: "Arrive 15 minutes early to pick up tickets and find your seats"
+    });
+  } else {
+    flow.push({
+      step: 2,
+      phase: "Main Activity",
+      activity: planDetails.activities[1] || "Sunset walk and dinner",
+      venue: "Momofuku Noodle Bar",
+      address: "East Village, Manhattan",
+      duration: "2-3 hours",
+      cost: "$40-60",
+      description: `Enjoy a romantic dinner at one of ${cityName}'s best restaurants.`,
+      tips: "Try the ramen - it's amazing!"
+    });
+  }
+
+  // Step 3: Post-activity
+  flow.push({
+    step: 3,
+    phase: "Evening Closer",
+    activity: "Post-show drinks and conversation",
+    venue: "Sardi's Restaurant",
+    address: "234 West 44th Street, New York, NY",
+    duration: "1 hour",
+    cost: "$30-50",
+    description: "End your perfect evening with drinks at this iconic Broadway restaurant.",
+    tips: "Perfect time to discuss the show and make deeper connections"
+  });
+
+  return {
+    title: title,
+    totalDuration: planDetails.duration || "4-5 hours",
+    totalBudget: planDetails.budget || "$$$",
+    flow: flow,
+    restaurants: [
+      {
+        name: "Carbone",
+        address: "181 Thompson Street, New York, NY",
+        cuisine: "Italian-American",
+        priceRange: "$80-120 per person",
+        description: "Upscale Italian-American restaurant perfect for special occasions",
+        reservation: "5:30 PM recommended for pre-show"
+      },
+      {
+        name: "Sardi's Restaurant",
+        address: "234 West 44th Street, New York, NY",
+        cuisine: "American",
+        priceRange: "$30-50 per person",
+        description: "Iconic Broadway restaurant with celebrity caricatures",
+        reservation: "Post-show drinks"
+      }
+    ],
+    backupOptions: [
+      {
+        scenario: "Weather issue",
+        alternative: "Indoor museum visit",
+        venue: "Museum of Modern Art (MoMA)",
+        cost: "$20-30"
+      },
+      {
+        scenario: "Show sold out",
+        alternative: "Alternative Broadway show",
+        venue: "Check TKTS booth for same-day discounts",
+        cost: "$50-100"
+      }
+    ],
+    logistics: {
+      transportation: "Subway or taxi between locations",
+      parking: "Limited street parking, consider garages",
+      timing: "Start around 5:30 PM for dinner, show at 8:00 PM",
+      weather: "All activities are indoors - weather won't affect plans"
+    }
+  };
 };
 
 module.exports = router;
