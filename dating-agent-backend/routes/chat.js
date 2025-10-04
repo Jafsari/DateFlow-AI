@@ -7,6 +7,9 @@ const { createClient } = require('@deepgram/sdk');
 const multer = require('multer');
 const router = express.Router();
 
+// Simple in-memory store for guest conversations
+const guestConversations = new Map();
+
 // Configure multer for audio file uploads
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -62,14 +65,33 @@ const buildContext = async (userId, conversation, partnerProfile = null) => {
 // Simple AI response generator (for now, will replace with OpenAI later)
 const generateAIResponse = (userMessage, context) => {
   const message = userMessage.toLowerCase();
+  const messageCount = context?.currentConversation?.context?.messageCount || 0;
+  const conversationSummary = context?.currentConversation?.context?.conversation_summary || '';
   
-  // Date planning focused responses
-  if (message.includes('first date') || message.includes('coffee') || message.includes('lunch')) {
-    return "Great! For a first date, I'd recommend keeping it simple and comfortable. Coffee shops or casual lunch spots work perfectly. What's your budget range and how much time do you have available?";
+  // Use conversation context for more personalized responses
+  if (messageCount === 1) {
+    if (message.includes('first date') || message.includes('coffee') || message.includes('lunch')) {
+      return "Great! For a first date, I'd recommend keeping it simple and comfortable. Coffee shops or casual lunch spots work perfectly. What's your budget range and how much time do you have available?";
+    }
+    
+    if (message.includes('restaurant') || message.includes('dinner')) {
+      return "Perfect! For a dinner date, consider the atmosphere and cuisine type. What kind of food do you both enjoy? Are you looking for something romantic, casual, or somewhere in between?";
+    }
+    
+    if (message.includes('help') || message.includes('plan') || message.includes('suggest')) {
+      return "I'm here to help you plan the perfect date! Tell me about your situation - what type of date are you planning, who you're going with, and what you're hoping to do. The more details you share, the better I can help!";
+    }
+    
+    return "Hi! I'm your AI dating assistant! 🎯 I can help you with date ideas, conversation starters, relationship advice, and more. What would you like to explore today?";
   }
   
-  if (message.includes('restaurant') || message.includes('dinner')) {
-    return "Perfect! For a dinner date, consider the atmosphere and cuisine type. What kind of food do you both enjoy? Are you looking for something romantic, casual, or somewhere in between?";
+  // Build on previous conversation context
+  if (conversationSummary.includes('dinner') && message.includes('italian')) {
+    return "Italian food is perfect for a romantic dinner! I'd suggest looking for a cozy trattoria with dim lighting. Would you prefer a traditional family-style place or something more modern? And have you thought about wine pairings?";
+  }
+  
+  if (conversationSummary.includes('dinner') && message.includes('budget')) {
+    return "Great question about budget! For Italian restaurants, you can find excellent options at different price points. What's your comfort zone - are you thinking casual trattoria ($15-25 per person) or something more upscale ($40-60 per person)?";
   }
   
   if (message.includes('activity') || message.includes('what to do')) {
@@ -92,8 +114,15 @@ const generateAIResponse = (userMessage, context) => {
     return "Exciting! For a second date, you can step it up a bit. What did you enjoy about your first date? I can suggest activities that build on that experience or try something completely different.";
   }
   
-  if (message.includes('help') || message.includes('plan') || message.includes('suggest')) {
-    return "I'm here to help you plan the perfect date! Tell me about your situation - what type of date are you planning, who you're going with, and what you're hoping to do. The more details you share, the better I can help!";
+  // More contextual responses based on conversation flow
+  if (messageCount > 1) {
+    if (message.includes('yes') || message.includes('sounds good') || message.includes('perfect')) {
+      return "Excellent! I'm excited to help you plan this. What's the next detail we should work on - timing, reservations, or maybe some conversation starters for the date?";
+    }
+    
+    if (message.includes('no') || message.includes('not sure')) {
+      return "No worries! Let's explore other options. What aspects of dating are you most interested in? I can help with different types of dates, conversation tips, or relationship advice.";
+    }
   }
   
   return "That sounds interesting! I'm here to help with all aspects of date planning - from choosing venues and activities to logistics and preparation. What specific aspect of your date would you like help with?";
@@ -351,6 +380,114 @@ Remember: The user's current question and needs come first. Partner profile shou
     return generateFionaResponse(userMessage, context);
   }
 };
+
+// POST /api/chat/guest - Send message and get AI response (no authentication required)
+router.post('/guest', async (req, res) => {
+  try {
+    const { message, session_id } = req.body;
+
+    console.log('🔍 Guest chat request received:');
+    console.log('  - Message:', message);
+    console.log('  - Session ID:', session_id);
+
+    if (!message || !session_id) {
+      console.error('❌ Missing required fields:', { message: !!message, session_id: !!session_id });
+      return res.status(400).json({
+        error: 'Message and session_id are required',
+        code: 'MISSING_FIELDS'
+      });
+    }
+
+    // Get or create guest conversation
+    let conversation = guestConversations.get(session_id);
+    if (!conversation) {
+      conversation = {
+        messages: [],
+        context: {
+          conversation_summary: 'Guest user starting a new conversation',
+          current_topic: 'general_dating',
+          relationship_stage: 'unknown',
+          mood: 'curious',
+          messageCount: 0
+        }
+      };
+      guestConversations.set(session_id, conversation);
+    }
+
+    // Add user message to conversation
+    conversation.messages.push({ role: 'user', content: message });
+    conversation.context.messageCount++;
+
+    // Update conversation context based on message count and content
+    if (conversation.context.messageCount === 1) {
+      if (message.toLowerCase().includes('dinner') || message.toLowerCase().includes('restaurant')) {
+        conversation.context.conversation_summary = 'Guest user planning a dinner date';
+        conversation.context.current_topic = 'dinner_planning';
+      } else if (message.toLowerCase().includes('first date')) {
+        conversation.context.conversation_summary = 'Guest user planning a first date';
+        conversation.context.current_topic = 'first_date';
+      } else {
+        conversation.context.conversation_summary = 'Guest user just started chatting about dating advice';
+        conversation.context.current_topic = 'general_dating';
+      }
+      conversation.context.mood = 'curious';
+    } else if (conversation.context.messageCount === 2) {
+      // Build on the first message context
+      if (conversation.context.current_topic === 'dinner_planning') {
+        if (message.toLowerCase().includes('italian') || message.toLowerCase().includes('food')) {
+          conversation.context.conversation_summary = 'Guest user planning an Italian dinner date';
+        } else if (message.toLowerCase().includes('budget') || message.toLowerCase().includes('price')) {
+          conversation.context.conversation_summary = 'Guest user discussing dinner date budget';
+        }
+      }
+      conversation.context.mood = 'engaged';
+    } else if (conversation.context.messageCount > 3) {
+      conversation.context.conversation_summary = 'Guest user having an ongoing conversation about dating';
+      conversation.context.mood = 'engaged';
+    }
+
+    // Create context for AI response
+    const guestContext = {
+      userProfile: {
+        name: 'Guest User',
+        location: 'Unknown',
+        age: null,
+        interests: [],
+        dating_goals: 'casual'
+      },
+      partnerProfile: null,
+      currentConversation: {
+        messages: conversation.messages,
+        context: conversation.context
+      },
+      recentContext: []
+    };
+
+    console.log('🤖 Generating AI response for guest user...');
+    
+    // Generate AI response with guest context
+    const aiResponse = await generateAIResponse(message, guestContext);
+    
+    // Add AI response to conversation history
+    conversation.messages.push({ role: 'assistant', content: aiResponse });
+    
+    console.log('✅ Guest chat response generated successfully');
+
+    res.json({
+      message: aiResponse,
+      session_id: session_id,
+      is_guest: true,
+      suggestion: 'Create an account to save your conversations and get personalized dating advice!'
+    });
+
+  } catch (error) {
+    console.error('❌ Guest chat error:', error);
+    res.status(500).json({
+      error: 'Failed to process guest chat message',
+      code: 'GUEST_CHAT_ERROR'
+    });
+  }
+});
 
 // POST /api/chat - Send message and get AI response
 router.post('/', authenticateToken, async (req, res) => {
@@ -924,6 +1061,69 @@ router.post('/yelp-disconnect', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/chat/transcribe/guest - Transcribe audio for guest users (no authentication required)
+router.post('/transcribe/guest', upload.single('audio'), async (req, res) => {
+  try {
+    const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+    
+    // Handle FormData from frontend
+    let audioBuffer;
+    if (req.file) {
+      // If audio is sent as file upload (FormData)
+      audioBuffer = req.file.buffer;
+      console.log('🎤 Guest audio transcription - Received audio file:', req.file.originalname, 'Size:', req.file.size, 'bytes');
+    } else if (req.body.audio) {
+      // If audio is sent as base64 in body
+      audioBuffer = Buffer.from(req.body.audio, 'base64');
+      console.log('🎤 Guest audio transcription - Received base64 audio, size:', audioBuffer.length, 'bytes');
+    } else {
+      return res.status(400).json({
+        error: 'Audio file is required',
+        code: 'MISSING_AUDIO'
+      });
+    }
+
+    console.log('🎯 Transcribing guest audio with Deepgram...');
+    
+    const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+      audioBuffer,
+      {
+        model: 'nova-2',
+        smart_format: true,
+        punctuate: true,
+        diarize: true,
+        language: 'en'
+      }
+    );
+
+    if (error) {
+      console.error('❌ Deepgram transcription error:', error);
+      return res.status(500).json({
+        error: 'Failed to transcribe audio',
+        code: 'TRANSCRIPTION_ERROR'
+      });
+    }
+
+    const transcript = result?.results?.channels[0]?.alternatives[0]?.transcript || '';
+    const confidence = result?.results?.channels[0]?.alternatives[0]?.confidence || 0;
+
+    console.log('✅ Guest audio transcribed successfully:', transcript);
+
+    res.json({
+      transcript: transcript,
+      confidence: confidence,
+      is_guest: true
+    });
+
+  } catch (error) {
+    console.error('❌ Guest transcription error:', error);
+    res.status(500).json({
+      error: 'Failed to transcribe guest audio',
+      code: 'GUEST_TRANSCRIPTION_ERROR'
+    });
+  }
+});
+
 // POST /api/chat/transcribe - Transcribe audio using Deepgram
 router.post('/transcribe', authenticateToken, upload.single('audio'), async (req, res) => {
   try {
@@ -981,6 +1181,71 @@ router.post('/transcribe', authenticateToken, upload.single('audio'), async (req
     res.status(500).json({
       error: 'Failed to transcribe audio',
       code: 'TRANSCRIPTION_ERROR'
+    });
+  }
+});
+
+// POST /api/chat/synthesize/guest - Generate speech for guest users (no authentication required)
+router.post('/synthesize/guest', async (req, res) => {
+  try {
+    const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+    
+    if (!req.body.text) {
+      return res.status(400).json({
+        error: 'Text is required',
+        code: 'MISSING_TEXT'
+      });
+    }
+
+    console.log('🔊 Synthesizing speech for guest user with Deepgram...');
+    
+    // Available Deepgram Aura voices:
+    // aura-asteria-en (current - female, warm)
+    // aura-luna-en (female, calm)
+    // aura-stella-en (female, expressive)
+    // aura-athena-en (female, authoritative)
+    // aura-hera-en (female, mature)
+    // aura-orion-en (male, confident)
+    // aura-arcas-en (male, calm)
+    // aura-perseus-en (male, animated)
+    // aura-angus-en (male, deep)
+    // aura-orpheus-en (male, emotional)
+    // aura-helios-en (male, strong)
+    // aura-zeus-en (male, authoritative)
+
+    const { result, error } = await deepgram.speak.request(
+      { text: req.body.text },
+      {
+        model: 'aura-luna-en',
+        encoding: 'linear16',
+        container: 'wav'
+      }
+    );
+
+    if (error) {
+      console.error('❌ Deepgram synthesis error:', error);
+      return res.status(500).json({
+        error: 'Failed to synthesize speech',
+        code: 'SYNTHESIS_ERROR'
+      });
+    }
+
+    const audioArrayBuffer = await result.arrayBuffer();
+    const audioBase64 = Buffer.from(audioArrayBuffer).toString('base64');
+    
+    console.log('✅ Guest speech synthesized successfully');
+
+    res.json({
+      audio: audioBase64,
+      format: 'wav',
+      is_guest: true
+    });
+
+  } catch (error) {
+    console.error('❌ Guest synthesis error:', error);
+    res.status(500).json({
+      error: 'Failed to synthesize guest speech',
+      code: 'GUEST_SYNTHESIS_ERROR'
     });
   }
 });

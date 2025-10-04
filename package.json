@@ -1,0 +1,18 @@
+{
+  "name": "dating-agent",
+  "version": "1.0.0",
+  "description": "DateFlow AI - Your Intelligent Dating Assistant",
+  "scripts": {
+    "build": "cd dating-agent-frontend && npm run build",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd dating-agent-backend && npm run dev",
+    "dev:frontend": "cd dating-agent-frontend && npm start",
+    "install:all": "npm install && cd dating-agent-backend && npm install && cd ../dating-agent-frontend && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

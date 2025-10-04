@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/index.js",
+      "src": "dating-agent-backend/server.js",
       "use": "@vercel/node"
     },
     {
@@ -16,11 +16,14 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.js"
+      "dest": "/dating-agent-backend/server.js"
     },
     {
       "src": "/(.*)",
       "dest": "/dating-agent-frontend/build/index.html"
     }
-  ]
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
 }
