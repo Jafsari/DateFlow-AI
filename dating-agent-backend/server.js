@@ -37,9 +37,9 @@ mongoose.connect(process.env.MONGODB_URI, {
 });
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/chat', require('./routes/chat'));
-app.use('/api/user', require('./routes/user'));
+app.use('/auth', require('./routes/auth'));
+app.use('/chat', require('./routes/chat'));
+app.use('/user', require('./routes/user'));
 
 // Health check
 app.get('/health', (req, res) => {
