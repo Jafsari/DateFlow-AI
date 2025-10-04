@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "dating-agent-backend/server.js",
+      "src": "api/index.js",
       "use": "@vercel/node"
     },
     {
@@ -16,7 +16,7 @@
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/dating-agent-backend/server.js"
+      "dest": "/api/index.js"
     },
     {
       "src": "/static/(.*)",
@@ -26,8 +26,5 @@
       "src": "/(.*)",
       "dest": "/dating-agent-frontend/build/index.html"
     }
-  ],
-  "env": {
-    "REACT_APP_API_URL": "@react_app_api_url"
-  }
+  ]
 }
