@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "dating-agent-backend/server.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "dating-agent-frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/dating-agent-backend/server.js"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "/dating-agent-frontend/build/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/dating-agent-frontend/build/index.html"
+    }
+  ],
+  "env": {
+    "REACT_APP_API_URL": "@react_app_api_url"
+  }
+}

@@ -14,8 +14,8 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:3000',
     'https://dateflow-ai.vercel.app',
-    'https://dateflow-ai.netlify.app',
-    'https://dateflow-ai-git-main-jafsari.vercel.app'
+    'https://dateflow-ai-git-main-jafsari.vercel.app',
+    'https://dateflow-ai-jafsari.vercel.app'
   ],
   credentials: true
 }));
