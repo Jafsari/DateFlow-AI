@@ -6,19 +6,25 @@ DateFlow AI is a sophisticated dating assistant application that helps users pla
 
 ### Core Functionality
 - **AI-Powered Date Planning**: Get intelligent suggestions for romantic activities and experiences
-- **Restaurant Recommendations**: Find the perfect dining spots with detailed information
+- **Real Event Integration**: Access live events from Ticketmaster and Eventbrite APIs
+- **Smart Event Caching**: Pre-fetch and cache events for faster loading
 - **Voice Interaction**: Natural voice commands with text-to-speech responses
 - **Partner Profile Management**: Store and use partner preferences for personalized suggestions
 - **Conversation History**: Keep track of your planning sessions
 - **Real-time Chat**: Interactive chat interface with AI assistant
+- **DateFlow Generation**: Create detailed, step-by-step date itineraries
+- **Email Invitations**: Send beautiful DateFlow invitations with calendar attachments
 
 ### Technical Features
-- **Modern React Frontend**: Beautiful, responsive user interface
-- **Node.js Backend**: Robust API with Express.js
-- **AI Integration**: Powered by Groq API for intelligent responses
+- **Modern React Frontend**: Beautiful, responsive user interface with React Context
+- **Node.js Backend**: Robust API with Express.js and comprehensive error handling
+- **AI Integration**: Powered by Groq API with optimized prompts and rate limiting
 - **Voice Processing**: Deepgram integration for speech-to-text and text-to-speech
 - **Authentication**: Secure user authentication and session management
 - **Database**: MongoDB with Mongoose for data persistence
+- **Event APIs**: Ticketmaster and Eventbrite integration for real-time events
+- **Email Service**: SendGrid integration for DateFlow invitations
+- **Smart Caching**: In-memory caching system for events and user data
 
 ## 🛠️ Tech Stack
 
@@ -35,9 +41,14 @@ DateFlow AI is a sophisticated dating assistant application that helps users pla
 - **JWT** - Authentication tokens
 
 ### AI & Voice
-- **Groq API** - AI language model
+- **Groq API** - AI language model with optimized prompts
 - **Deepgram** - Speech-to-text and text-to-speech
 - **Web Audio API** - Voice processing
+
+### External APIs
+- **Ticketmaster API** - Live event data
+- **Eventbrite API** - Additional event sources
+- **SendGrid API** - Email service for DateFlow invitations
 
 ## 📦 Installation
 
@@ -68,13 +79,40 @@ DateFlow AI is a sophisticated dating assistant application that helps users pla
 
 4. **Environment Configuration**
    
-   Create a `.env` file in the `dating-agent-backend` directory:
+   Run the setup script to create your `.env` file:
+   ```bash
+   cd dating-agent-backend
+   chmod +x setup-env.sh
+   ./setup-env.sh
+   ```
+   
+   Or manually create a `.env` file with:
    ```env
-   MONGODB_URI=mongodb://localhost:27017/dateflow-ai
-   JWT_SECRET=your-jwt-secret-key
+   # Server Configuration
+   PORT=5001
+   NODE_ENV=development
+   
+   # Database
+   MONGODB_URI=your-mongodb-connection-string
+   
+   # JWT Secret
+   JWT_SECRET=your-super-secret-jwt-key
+   
+   # AI & Voice APIs
    GROQ_API_KEY=your-groq-api-key
    DEEPGRAM_API_KEY=your-deepgram-api-key
-   EMAIL_SERVICE_API_KEY=your-email-service-key
+   
+   # Event APIs
+   TICKETMASTER_CONSUMER_KEY=your-ticketmaster-key
+   TICKETMASTER_CONSUMER_SECRET=your-ticketmaster-secret
+   EVENTBRITE_API_KEY=your-eventbrite-api-key
+   
+   # Email Service
+   SENDGRID_API_KEY=your-sendgrid-api-key
+   SENDGRID_FROM_EMAIL=your-email@example.com
+   
+   # Frontend URL
+   FRONTEND_URL=http://localhost:3000
    ```
 
 5. **Start MongoDB**
@@ -107,29 +145,37 @@ DateFlow AI is a sophisticated dating assistant application that helps users pla
 4. **Voice Commands**: Press and hold the microphone button to speak
 
 ### Key Features
-- **Date Planning**: Ask for romantic activity suggestions
-- **Restaurant Search**: Find restaurants by cuisine, location, or occasion
+- **Date Planning**: Ask for romantic activity suggestions with AI-powered recommendations
+- **Real Events**: Browse live events from Ticketmaster and Eventbrite
+- **Smart Caching**: Events are pre-loaded and cached for instant access
 - **Partner Preferences**: Get personalized recommendations based on your partner's profile
+- **DateFlow Generation**: Create detailed, step-by-step date itineraries
+- **Email Invitations**: Send beautiful DateFlow invitations with calendar attachments
 - **Conversation History**: Review your previous planning sessions
-- **Quick Suggestions**: Use the quick action buttons for common requests
+- **Voice Commands**: Use natural speech to interact with the AI
+- **Event Refresh**: Update events with loading animations and cache management
 
 ## 🔧 API Endpoints
 
-### Authentication
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `POST /api/auth/verify-email` - Email verification
-
-### Chat
-- `POST /api/chat` - Send message to AI
-- `POST /api/chat/transcribe` - Speech-to-text
-- `POST /api/chat/synthesize` - Text-to-speech
-- `GET /api/chat/conversations` - Get conversation history
+### Chat & AI
+- `POST /chat` - Send message to AI (authenticated)
+- `POST /chat/guest` - Send message to AI (guest)
+- `POST /chat/generate-dateflow` - Generate DateFlow itinerary
+- `POST /chat/transcribe` - Speech-to-text
+- `POST /chat/synthesize` - Text-to-speech
+- `GET /chat/events` - Get live events
+- `GET /chat/date-ideas` - Get AI-generated date ideas
 
 ### User Management
-- `GET /api/user/profile` - Get user profile
-- `PUT /api/user/profile` - Update user profile
-- `POST /api/user/partner-profile` - Set partner profile
+- `GET /user/profile` - Get user profile
+- `PUT /user/profile` - Update user profile
+- `GET /user/events` - Get cached events for user
+- `POST /user/partner-profile` - Set partner profile
+
+### Authentication
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User login
+- `POST /auth/verify-email` - Email verification
 
 ## 🎨 Design
 
@@ -166,6 +212,30 @@ If you have any questions or need help, please:
 - Check the documentation
 - Contact the development team
 
+## 🧪 Testing
+
+The application includes comprehensive testing capabilities:
+
+### Chat Tab Testing
+```bash
+# Test the chat functionality with multiple utterances
+node test-chat-tab.js
+```
+
+This test script:
+- Authenticates with your credentials
+- Tests multiple chat messages
+- Verifies AI responses are concise and relevant
+- Tests event loading and caching
+- Validates profile context integration
+
+### Manual Testing
+1. **Chat Tab**: Test AI responses with various date planning requests
+2. **Events Tab**: Verify event loading, caching, and refresh functionality
+3. **DateFlow Generation**: Test complete date itinerary creation
+4. **Email Invitations**: Test DateFlow email sending with calendar attachments
+5. **Voice Features**: Test speech-to-text and text-to-speech functionality
+
 ## 🔮 Future Features
 
 - [ ] Mobile app development
@@ -174,6 +244,10 @@ If you have any questions or need help, please:
 - [ ] Advanced AI personalization
 - [ ] Multi-language support
 - [ ] Restaurant booking integration
+- [ ] Event ticket purchasing
+- [ ] Group date planning
+- [ ] Weather integration
+- [ ] Transportation recommendations
 
 ---
 
