@@ -124,6 +124,23 @@ router.post('/login', async (req, res) => {
     await user.updateLastActive();
     console.log(`✅ User logged in: ${email}`);
 
+    // Pre-fetch events for the user's location to cache them
+    const userLocation = user.profile?.location || 'New York, NY';
+    const userNeighborhood = user.profile?.neighborhood || '';
+    const userRadius = user.profile?.travel_radius || '3';
+    
+    console.log(`🎫 Pre-fetching events for user location: ${userLocation} (${userNeighborhood}) within ${userRadius} miles`);
+    
+    // Import the events function (we'll need to restructure this)
+    try {
+      const { callCombinedEventsAPI } = require('./chat');
+      await callCombinedEventsAPI(userLocation, user.profile, null, userNeighborhood, userRadius);
+      console.log(`✅ Events pre-fetched and cached for ${email}`);
+    } catch (error) {
+      console.warn(`⚠️ Could not pre-fetch events for ${email}:`, error.message);
+      // Don't fail login if event pre-fetch fails
+    }
+
     // Generate JWT token with longer expiration
     const token = jwt.sign(
       { 

@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const User = require('../models/User');
+const { getCachedEvents, callCombinedEventsAPI } = require('./chat');
 const router = express.Router();
 
 // GET /api/user/profile - Get user profile
@@ -234,6 +235,82 @@ router.delete('/delete-account', authenticateToken, async (req, res) => {
     res.status(500).json({
       error: 'Failed to delete account',
       code: 'DELETE_ACCOUNT_ERROR'
+    });
+  }
+});
+
+// GET /api/user/events - Get cached events for user's location
+router.get('/events', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { force_refresh = 'false' } = req.query;
+    
+    const user = await User.findById(userId).select('profile');
+    
+    if (!user) {
+      return res.status(404).json({
+        error: 'User not found',
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    const userLocation = user.profile?.location || 'New York, NY';
+    const userNeighborhood = user.profile?.neighborhood || '';
+    const userRadius = user.profile?.travel_radius || '3';
+    const cacheKey = `${userLocation}-${userNeighborhood || 'no-neighborhood'}-${userRadius}`;
+
+    console.log(`🎫 Getting events for user ${userId}: ${cacheKey}`);
+
+    // Check cache first unless force refresh is requested
+    if (force_refresh !== 'true') {
+      const cachedEvents = getCachedEvents(cacheKey);
+      if (cachedEvents) {
+        console.log(`✅ Returning ${cachedEvents.length} cached events for user ${userId}`);
+        return res.json({
+          events: cachedEvents,
+          location: userLocation,
+          neighborhood: userNeighborhood,
+          radius: userRadius,
+          source: 'cache',
+          count: cachedEvents.length,
+          message: 'Events loaded from cache'
+        });
+      }
+    }
+
+    // If no cache or force refresh, fetch fresh events
+    console.log(`🔄 Fetching fresh events for user ${userId} (force_refresh: ${force_refresh})`);
+    const events = await callCombinedEventsAPI(userLocation, user.profile, null, userNeighborhood, userRadius);
+
+    if (events && events.length > 0) {
+      console.log(`✅ Returning ${events.length} fresh events for user ${userId}`);
+      res.json({
+        events: events,
+        location: userLocation,
+        neighborhood: userNeighborhood,
+        radius: userRadius,
+        source: 'fresh_fetch',
+        count: events.length,
+        message: 'Events loaded fresh'
+      });
+    } else {
+      console.log(`⚠️ No events found for user ${userId}`);
+      res.json({
+        events: [],
+        location: userLocation,
+        neighborhood: userNeighborhood,
+        radius: userRadius,
+        source: 'no_events',
+        count: 0,
+        message: 'No events found for this location'
+      });
+    }
+
+  } catch (error) {
+    console.error('Get user events error:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve events',
+      code: 'GET_USER_EVENTS_ERROR'
     });
   }
 });
