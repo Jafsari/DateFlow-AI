@@ -92,26 +92,71 @@ const getProfilesForEndpoint = async (req, sessionId = null) => {
     let userProfile = null;
     let partnerProfile = null;
     
-    // 1. Try to get user profile from database (for authenticated users)
+    // 1. Try to get user profile and partner from database (for authenticated users)
     if (req.user && req.user.userId) {
-      const user = await User.findById(req.user.userId).select('name interests budget neighborhood travel_radius age bio relationship_status city preferences');
+      const user = await User.findById(req.user.userId)
+        .select('profile active_partner')
+        .populate('active_partner');
+      
       userProfile = user?.profile || null;
       console.log('💾 Retrieved user profile from database:', {
         hasUserProfile: !!userProfile,
-        userName: userProfile?.name
+        userName: userProfile?.name,
+        userInterests: userProfile?.interests,
+        userInterestsType: typeof userProfile?.interests,
+        userInterestsLength: userProfile?.interests?.length
       });
+      
+      // Get partner profile from the populated active_partner field or query directly
+      if (user?.active_partner) {
+        partnerProfile = user.active_partner.toObject ? user.active_partner.toObject() : user.active_partner;
+        console.log('💾 Retrieved partner profile from user.active_partner (populated):', {
+          hasPartnerProfile: !!partnerProfile,
+          partnerName: partnerProfile?.name,
+          partnerInterests: partnerProfile?.interests,
+          partnerInterestsType: typeof partnerProfile?.interests,
+          partnerInterestsLength: partnerProfile?.interests?.length,
+          partnerPreferences: partnerProfile?.preferences
+        });
+      } else {
+        // Fallback: Try to find an active partner if active_partner field is not set
+        const Partner = require('../models/Partner');
+        const dbPartnerProfile = await Partner.findOne({ user_id: req.user.userId, is_active: true });
+        if (dbPartnerProfile) {
+          partnerProfile = dbPartnerProfile.toObject();
+          console.log('💾 Retrieved partner profile from database query (fallback):', {
+            hasPartnerProfile: !!partnerProfile,
+            partnerName: partnerProfile?.name,
+            partnerInterests: partnerProfile?.interests,
+            partnerId: dbPartnerProfile._id
+          });
+          
+          // Update the user's active_partner field for future queries
+          user.active_partner = dbPartnerProfile._id;
+          await user.save();
+          console.log('✅ Updated user.active_partner field for future use');
+        }
+      }
     }
     
-    // 2. Try to get partner profile from request body/query
+    // 2. Try to get partner profile from request body/query (can override database)
     if (req.body?.partner_profile) {
       try {
-        partnerProfile = typeof req.body.partner_profile === 'string' 
+        const bodyPartnerProfile = typeof req.body.partner_profile === 'string' 
           ? JSON.parse(req.body.partner_profile) 
           : req.body.partner_profile;
-        console.log('💾 Retrieved partner profile from request body:', {
-          hasPartnerProfile: !!partnerProfile,
-          partnerName: partnerProfile?.name
-        });
+        
+        if (bodyPartnerProfile && Object.keys(bodyPartnerProfile).length > 0) {
+          partnerProfile = bodyPartnerProfile;
+          console.log('💾 Retrieved partner profile from request body (overriding database):', {
+            hasPartnerProfile: !!partnerProfile,
+            partnerName: partnerProfile?.name,
+            partnerInterests: partnerProfile?.interests,
+            partnerInterestsType: typeof partnerProfile?.interests,
+            partnerInterestsLength: partnerProfile?.interests?.length,
+            partnerPreferences: partnerProfile?.preferences
+          });
+        }
       } catch (error) {
         console.warn('⚠️ Failed to parse partner profile from request body:', error.message);
       }
@@ -119,11 +164,18 @@ const getProfilesForEndpoint = async (req, sessionId = null) => {
     
     if (req.query?.partner_profile && req.query.partner_profile.trim() !== '') {
       try {
-        partnerProfile = JSON.parse(req.query.partner_profile);
-        console.log('💾 Retrieved partner profile from query params:', {
-          hasPartnerProfile: !!partnerProfile,
-          partnerName: partnerProfile?.name
-        });
+        const queryPartnerProfile = JSON.parse(req.query.partner_profile);
+        if (queryPartnerProfile && Object.keys(queryPartnerProfile).length > 0) {
+          partnerProfile = queryPartnerProfile;
+          console.log('💾 Retrieved partner profile from query params (overriding database):', {
+            hasPartnerProfile: !!partnerProfile,
+            partnerName: partnerProfile?.name,
+            partnerInterests: partnerProfile?.interests,
+            partnerInterestsType: typeof partnerProfile?.interests,
+            partnerInterestsLength: partnerProfile?.interests?.length,
+            partnerPreferences: partnerProfile?.preferences
+          });
+        }
       } catch (error) {
         console.warn('⚠️ Failed to parse partner profile from query params:', error.message);
       }
@@ -136,12 +188,18 @@ const getProfilesForEndpoint = async (req, sessionId = null) => {
       // Use context profiles as fallback or enhancement
       if (!userProfile && contextUserProfile) {
         userProfile = contextUserProfile;
-        console.log('💾 Using user profile from context as fallback');
+        console.log('💾 Using user profile from context as fallback:', {
+          userName: userProfile?.name,
+          userInterests: userProfile?.interests
+        });
       }
       
       if (!partnerProfile && contextPartnerProfile) {
         partnerProfile = contextPartnerProfile;
-        console.log('💾 Using partner profile from context as fallback');
+        console.log('💾 Using partner profile from context as fallback:', {
+          partnerName: partnerProfile?.name,
+          partnerInterests: partnerProfile?.interests
+        });
       }
     }
     
@@ -634,6 +692,15 @@ const buildContext = async (userId, conversation, partnerProfile = null) => {
       }))
     };
 
+    // Log context for debugging
+    console.log('🔍 Context being built for AI:', {
+      hasUserProfile: !!context.userProfile,
+      hasPartnerProfile: !!context.partnerProfile,
+      userInterests: context.userProfile?.interests || [],
+      partnerInterests: context.partnerProfile?.interests || [],
+      partnerName: context.partnerProfile?.name || 'No name'
+    });
+
     return context;
   } catch (error) {
     console.error('Error building context:', error);
@@ -708,35 +775,42 @@ const generateAIResponse = (userMessage, context) => {
 };
 
 
-// Fiona fallback response generator
+// Enhanced Fiona fallback response generator
 const generateFionaResponse = (userMessage, context) => {
   const message = userMessage.toLowerCase();
   
+  // Get partner name if available
+  const partnerName = context?.partnerProfile?.name || 'your partner';
+  
   if (message.includes('help') || message.includes('plan')) {
-    return "I'm Fiona. What seductive experience are you craving?";
+    return `I'd be happy to help you plan something special. What kind of experience are you thinking about for ${partnerName}?`;
   }
   
   if (message.includes('restaurant') || message.includes('dinner') || message.includes('food')) {
-    return "Perfect. What's your budget and preferred sensual cuisine?";
+    return `Food can really make a date memorable. What's your budget range, and does ${partnerName} have any favorite types of cuisine?`;
   }
   
   if (message.includes('activity') || message.includes('fun') || message.includes('do')) {
-    return "Intoxicating activities. Indoor seduction or outdoor adventure?";
+    return `There are so many great options out there. What does ${partnerName} typically enjoy doing? Are they more into indoor or outdoor activities?`;
   }
   
   if (message.includes('budget') || message.includes('money') || message.includes('cost')) {
-    return "Excellent. What's your spending range for this irresistible evening?";
+    return `It's good to have a budget in mind. What range are you thinking? I can share some ideas that work well at different price points.`;
   }
   
   if (message.includes('location') || message.includes('where') || message.includes('place')) {
-    return "Intriguing. Staying local or exploring somewhere intoxicating?";
+    return `Location can really set the tone. Are you thinking of staying local or exploring somewhere new?`;
   }
   
   if (message.includes('romantic') || message.includes('special')) {
-    return "Seductive. Special celebration or intimate evening encounter?";
+    return `Special moments are so important. What kind of things does ${partnerName} appreciate? I'd love to help you think of something they'd really enjoy.`;
   }
   
-  return "I'm Fiona. What intoxicating experience shall we create?";
+  if (message.includes('weather') || message.includes('outdoor')) {
+    return `The weather can definitely influence plans. What's it like where you are, and does ${partnerName} enjoy being outdoors?`;
+  }
+  
+  return `That sounds interesting! I'd be happy to help you think through some ideas. What aspects are you most curious about?`;
 };
 
 // Groq AI integration for date flow planning
@@ -1854,36 +1928,66 @@ const callGroqAPI = async (userMessage, context, conversationHistory, conversati
       return generateFionaResponse(userMessage, context);
     }
 
-    // Create concise DateFlow AI system prompt
-    let fionaPrompt = `You are DateFlow AI, a confident date planning consultant. Keep responses SHORT and concise.
+    // Create enhanced DateFlow AI system prompt for subtle, natural recommendations
+    let fionaPrompt = `You are DateFlow AI, a thoughtful dating assistant who helps create meaningful experiences. You're warm, genuine, and naturally helpful without being pushy.
 
-Tone: Confident, charming, conversational.
+PERSONALITY:
+- Conversational and friendly, like a knowledgeable friend who's great at planning dates
+- Subtle and organic in your recommendations - let interests guide suggestions naturally
+- Thoughtful and considerate of both partners' preferences
+- Gentle and encouraging, not overly enthusiastic or forward
 
-Provide 1-2 brief date ideas (1-2 sentences each max). Be direct and actionable.
+RESPONSE STYLE:
+- Write 2-4 sentences that feel natural and engaging
+- Subtly weave in interests and preferences without being obvious about it
+- Make gentle suggestions that feel like natural conversation
+- Ask thoughtful questions to understand their needs
+- Be conversational and organic, not robotic or salesy
 
-When user is satisfied (says "perfect", "sounds good", "let's do it"), respond ONLY: "Perfect. This plan is irresistibly seductive. I'll craft your intimate DateFlow now."
+CRITICAL RULES:
+- Use ONLY the partner's actual name from the provided profile. Do not make up names.
+- Subtly consider partner interests (70%) and user interests (30%) in your suggestions
+- Make recommendations feel natural and unforced - like you're just sharing ideas
+- Don't be too forward or pushy with suggestions
+- Let the conversation flow naturally while gently guiding toward good options
+- Be specific about locations, activities, and timing when it feels natural
 
-Use plain text only - no emojis or symbols. Keep responses under 50 words.`;
+When the user is ready for a complete date plan, respond: "That sounds wonderful! I'd be happy to help you put together a complete plan for that."`;
 
-    // Add user profile context if available (very concise)
+    // Add detailed user profile context
     if (context && context.userProfile) {
       const userProfile = context.userProfile;
       const location = userProfile.location || userProfile.user?.profile?.location || 'Unknown';
       const interests = userProfile.interests || [];
+      const budget = userProfile.budget || userProfile.user?.profile?.budget || 'Not specified';
+      const age = userProfile.age || userProfile.user?.profile?.age || 'Not specified';
       
-      fionaPrompt += `\n\nUSER: ${location}, interests: ${interests.slice(0, 2).join(', ')}`;
+      fionaPrompt += `\n\nUSER PROFILE (30% weight):
+- Name: ${userProfile.name || userProfile.user?.name || 'Not specified'}
+- Location: ${location}
+- Age: ${age}
+- Interests: ${interests.join(', ') || 'Not specified'}
+- Budget: ${budget}
+- Bio: ${userProfile.bio || userProfile.user?.profile?.bio || 'Not specified'}`;
     }
 
-    // Add current events context if available (very concise)
-    if (context && context.currentEvents && context.currentEvents.length > 0) {
-      const events = context.currentEvents.slice(0, 3); // Limit to top 3 events
-      fionaPrompt += `\n\nEVENTS: ${events.map(event => `${event.name} (${event.date})`).join(', ')}`;
-    }
-
-    // Add partner profile context if available (very concise)
+    // Add detailed partner profile context
     if (context.partnerProfile && Object.keys(context.partnerProfile).length > 0) {
       const partner = context.partnerProfile;
-      fionaPrompt += `\n\nPARTNER: ${partner.name || 'Not specified'}, budget: ${partner.budget || 'Not specified'}`;
+      console.log('🔍 PARTNER PROFILE DEBUG:', JSON.stringify(partner, null, 2));
+      
+      fionaPrompt += `\n\nPARTNER PROFILE (70% weight - FOCUS ON THIS):
+- Name: ${partner.name || 'Not specified'}
+- Age: ${partner.age || 'Not specified'}
+- Location: ${partner.location || 'Not specified'}
+- Interests: ${partner.interests ? partner.interests.join(', ') : 'Not specified'}
+- Budget: ${partner.budget || 'Not specified'}
+- Dietary Restrictions: ${partner.dietaryRestrictions || 'None'}
+- Keywords: ${partner.keywords || 'Not specified'}
+- Bio: ${partner.bio || 'Not specified'}`;
+    } else {
+      console.log('🔍 NO PARTNER PROFILE FOUND IN CONTEXT');
+      fionaPrompt += `\n\nNO PARTNER PROFILE AVAILABLE - Ask the user about their partner's preferences to create better recommendations.`;
     }
 
 
@@ -1892,8 +1996,8 @@ Use plain text only - no emojis or symbols. Keep responses under 50 words.`;
       { role: 'system', content: fionaPrompt }
     ];
 
-    // Add recent conversation history (last 2 messages to stay within token limits)
-    const recentHistory = conversationHistory.slice(-2);
+    // Add recent conversation history (last 3 messages for better context)
+    const recentHistory = conversationHistory.slice(-3);
     console.log(`📚 Adding ${recentHistory.length} previous messages to context`);
     recentHistory.forEach((msg, index) => {
       console.log(`  ${index + 1}. ${msg.role}: ${msg.content.substring(0, 50)}...`);
@@ -1908,7 +2012,33 @@ Use plain text only - no emojis or symbols. Keep responses under 50 words.`;
 
     console.log(`🤖 Calling Groq API for Fiona response with ${messages.length} total messages...`);
     console.log(`📝 System prompt length: ${fionaPrompt.length} characters`);
-    console.log(`📝 Total context being sent: ${JSON.stringify(messages, null, 2)}`);
+    console.log(`🔍 CONTEXT DEBUG:`, {
+      hasUserProfile: !!context?.userProfile,
+      hasPartnerProfile: !!context?.partnerProfile,
+      partnerProfileKeys: context?.partnerProfile ? Object.keys(context.partnerProfile) : [],
+      userProfileKeys: context?.userProfile ? Object.keys(context.userProfile) : []
+    });
+    
+    // Log detailed context information
+    if (context?.userProfile) {
+      console.log('🔍 USER PROFILE DETAILS:', {
+        name: context.userProfile.name,
+        interests: context.userProfile.interests,
+        location: context.userProfile.location
+      });
+    }
+    
+    if (context?.partnerProfile) {
+      console.log('🔍 PARTNER PROFILE DETAILS:', {
+        name: context.partnerProfile.name,
+        interests: context.partnerProfile.interests,
+        location: context.partnerProfile.location
+      });
+    } else {
+      console.log('🔍 NO PARTNER PROFILE IN CONTEXT');
+    }
+    
+    console.log(`📝 Final prompt: ${fionaPrompt}`);
 
     // Retry logic for rate limiting
     let response;
@@ -1920,14 +2050,14 @@ Use plain text only - no emojis or symbols. Keep responses under 50 words.`;
         response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
           model: 'llama-3.1-8b-instant', // Using current Llama 3.1 model
           messages: messages,
-          max_tokens: 80, // Very concise responses
+          max_tokens: 60, // Very concise responses
           temperature: 0.3, // Lower temperature for more consistent, sophisticated responses
           top_p: 0.9
         }, {
-          headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
-            'Content-Type': 'application/json'
-          },
+      headers: {
+        'Authorization': `Bearer ${groqApiKey}`,
+        'Content-Type': 'application/json'
+      },
           timeout: 30000 // 30 second timeout
         });
         
@@ -2151,8 +2281,21 @@ router.post('/', authenticateToken, async (req, res) => {
       hasUserProfile: !!userProfile,
       hasPartnerProfile: !!partnerProfile,
       userName: userProfile?.name,
-      partnerName: partnerProfile?.name
+      partnerName: partnerProfile?.name,
+      partnerProfileData: partnerProfile ? JSON.stringify(partnerProfile, null, 2) : 'null'
     });
+    
+    // Log combined interests for debugging
+    const userInterests = userProfile?.interests || [];
+    const partnerInterests = partnerProfile?.interests || [];
+    const combinedInterests = [...userInterests, ...partnerInterests];
+    console.log('🎯 ========== INTERESTS DEBUG ==========');
+    console.log('🎯 User Profile Object:', JSON.stringify(userProfile, null, 2));
+    console.log('🎯 Partner Profile Object:', JSON.stringify(partnerProfile, null, 2));
+    console.log('🎯 Backend user interests (from userProfile?.interests):', userInterests);
+    console.log('🎯 Backend partner interests (from partnerProfile?.interests):', partnerInterests);
+    console.log('🎯 Backend combined interests:', combinedInterests);
+    console.log('🎯 ======================================');
 
     // Get or create conversation
     let conversation = await Conversation.findOne({ 

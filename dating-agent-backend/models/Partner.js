@@ -29,6 +29,19 @@ const partnerSchema = new mongoose.Schema({
     type: String,
     maxlength: 500
   },
+  keywords: {
+    type: String,
+    maxlength: 1000
+  },
+  dietaryRestrictions: {
+    type: String,
+    maxlength: 500
+  },
+  budget: {
+    type: String,
+    enum: ['budget', 'moderate', 'upscale', 'luxury'],
+    default: 'moderate'
+  },
   interests: [{
     type: String,
     enum: [

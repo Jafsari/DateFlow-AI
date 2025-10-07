@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Partner Save</title>
+</head>
+<body>
+    <h1>Partner Profile Save Debug</h1>
+    <div id="output"></div>
+    
+    <script>
+        async function testPartnerSave() {
+            const output = document.getElementById('output');
+            
+            try {
+                // First login
+                output.innerHTML += '<p>🔐 Logging in...</p>';
+                const loginResponse = await fetch('http://localhost:5001/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: 'afsarijustin@gmail.com',
+                        password: 'Loserhihi1!'
+                    })
+                });
+                
+                if (!loginResponse.ok) {
+                    output.innerHTML += '<p>❌ Login failed</p>';
+                    return;
+                }
+                
+                const loginData = await loginResponse.json();
+                const token = loginData.token;
+                output.innerHTML += '<p>✅ Login successful</p>';
+                
+                // Test partner save
+                const partnerData = {
+                    name: 'Debug Partner',
+                    age: 30,
+                    location: 'Debug City',
+                    bio: 'Debug bio',
+                    interests: ['music', 'art'],
+                    keywords: 'debug, test',
+                    dietaryRestrictions: 'none',
+                    budget: 'moderate'
+                };
+                
+                output.innerHTML += '<p>📤 Saving partner profile...</p>';
+                const saveResponse = await fetch('http://localhost:5001/api/partner', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(partnerData)
+                });
+                
+                output.innerHTML += `<p>📡 Response status: ${saveResponse.status}</p>`;
+                
+                if (saveResponse.ok) {
+                    const result = await saveResponse.json();
+                    output.innerHTML += '<p>✅ Partner saved successfully!</p>';
+                    output.innerHTML += `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+                } else {
+                    const error = await saveResponse.text();
+                    output.innerHTML += `<p>❌ Save failed: ${error}</p>`;
+                }
+                
+                // Test retrieval
+                output.innerHTML += '<p>📥 Retrieving partner profile...</p>';
+                const getResponse = await fetch('http://localhost:5001/api/partner', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                output.innerHTML += `<p>📡 Get status: ${getResponse.status}</p>`;
+                
+                if (getResponse.ok) {
+                    const partner = await getResponse.json();
+                    output.innerHTML += '<p>✅ Partner retrieved successfully!</p>';
+                    output.innerHTML += `<pre>${JSON.stringify(partner, null, 2)}</pre>`;
+                } else {
+                    const error = await getResponse.text();
+                    output.innerHTML += `<p>❌ Get failed: ${error}</p>`;
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p>❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run test when page loads
+        testPartnerSave();
+    </script>
+</body>
+</html>

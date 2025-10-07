@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Debug Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .code {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            border-left: 4px solid #007bff;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #28a745;
+            background: #f8f9fa;
+        }
+        .log {
+            background: #000;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Frontend Debug Test</h1>
+        
+        <div class="step">
+            <h3>Step 1: Set Partner Profile</h3>
+            <button class="button" onclick="setPartnerProfile()">Set Christine's Profile</button>
+            <div id="step1Result"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Test localStorage</h3>
+            <button class="button" onclick="testLocalStorage()">Test localStorage</button>
+            <div id="step2Result"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Test ProfileContext Logic</h3>
+            <button class="button" onclick="testProfileContextLogic()">Test ProfileContext Logic</button>
+            <div id="step3Result"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: Test Combined Interests Logic</h3>
+            <button class="button" onclick="testCombinedInterests()">Test Combined Interests</button>
+            <div id="step4Result"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 5: Test API Call</h3>
+            <button class="button" onclick="testAPICall()">Test API Call</button>
+            <div id="step5Result"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 6: Instructions for Real App</h3>
+            <div class="code">1. Go to your DateFlow app (http://localhost:3001)
+2. Open browser console (F12)
+3. Run: localStorage.setItem("partner-profile", '{"name":"Christine","interests":["John Summit","raves","electronic music"],"age":28,"location":"New York, NY","budget":"$$","dietaryRestrictions":[],"neighborhood":"SoHo","travel_radius":3}');
+4. Refresh the page
+5. Look for these logs:
+   🚀 ProfileContext mounted, loading partner profile...
+   🔍 Checking localStorage before loading...
+   🔍 Raw localStorage value: {"name":"Christine",...}
+   🔍 Parsed localStorage value: { name: "Christine", ... }
+   🔍 Partner profile state changed: { hasPartnerProfile: true, ... }
+   🔄 Profiles updated in AIChat: { hasPartnerProfile: true, ... }
+6. Send a chat message and look for:
+   🎯 Combined interests being sent: [..., "John Summit", "raves", "electronic music"]</div>
+        </div>
+
+        <div class="step">
+            <h3>Console Logs</h3>
+            <div id="consoleLogs" class="log"></div>
+            <button class="button" onclick="clearLogs()">Clear Logs</button>
+        </div>
+    </div>
+
+    <script>
+        // Override console.log to capture logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        const logs = [];
+        
+        console.log = function(...args) {
+            logs.push('LOG: ' + args.join(' '));
+            updateLogs();
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            logs.push('ERROR: ' + args.join(' '));
+            updateLogs();
+            originalError.apply(console, args);
+        };
+        
+        function updateLogs() {
+            document.getElementById('consoleLogs').textContent = logs.slice(-100).join('\n');
+        }
+        
+        function clearLogs() {
+            logs.length = 0;
+            updateLogs();
+        }
+
+        const testPartnerProfile = {
+            name: 'Christine',
+            interests: ['John Summit', 'raves', 'electronic music'],
+            age: 28,
+            location: 'New York, NY',
+            budget: '$$',
+            dietaryRestrictions: [],
+            neighborhood: 'SoHo',
+            travel_radius: 3
+        };
+
+        function setPartnerProfile() {
+            try {
+                localStorage.setItem('partner-profile', JSON.stringify(testPartnerProfile));
+                document.getElementById('step1Result').innerHTML = `
+                    <div class="success">
+                        ✅ Partner profile set successfully!<br>
+                        <strong>Name:</strong> ${testPartnerProfile.name}<br>
+                        <strong>Interests:</strong> ${testPartnerProfile.interests.join(', ')}
+                    </div>
+                `;
+                console.log('✅ Partner profile set in localStorage');
+            } catch (error) {
+                document.getElementById('step1Result').innerHTML = `
+                    <div class="error">
+                        ❌ Error setting profile: ${error.message}
+                    </div>
+                `;
+                console.error('❌ Error setting partner profile:', error);
+            }
+        }
+
+        function testLocalStorage() {
+            try {
+                const saved = localStorage.getItem('partner-profile');
+                if (saved) {
+                    const profile = JSON.parse(saved);
+                    document.getElementById('step2Result').innerHTML = `
+                        <div class="success">
+                            ✅ Partner profile found in localStorage:<br>
+                            <strong>Name:</strong> ${profile.name}<br>
+                            <strong>Interests:</strong> ${profile.interests.join(', ')}<br>
+                            <strong>Type:</strong> ${typeof profile.interests}<br>
+                            <strong>Is Array:</strong> ${Array.isArray(profile.interests)}
+                        </div>
+                    `;
+                    console.log('✅ localStorage test passed');
+                    console.log('Profile:', profile);
+                    console.log('Interests type:', typeof profile.interests);
+                    console.log('Interests is array:', Array.isArray(profile.interests));
+                } else {
+                    document.getElementById('step2Result').innerHTML = `
+                        <div class="error">
+                            ❌ No partner profile found in localStorage
+                        </div>
+                    `;
+                    console.error('❌ localStorage test failed - no profile found');
+                }
+            } catch (error) {
+                document.getElementById('step2Result').innerHTML = `
+                    <div class="error">
+                        ❌ Error testing localStorage: ${error.message}
+                    </div>
+                `;
+                console.error('❌ localStorage test error:', error);
+            }
+        }
+
+        function testProfileContextLogic() {
+            try {
+                const saved = localStorage.getItem('partner-profile');
+                if (!saved) {
+                    document.getElementById('step3Result').innerHTML = `
+                        <div class="error">
+                            ❌ No partner profile found. Please set it first.
+                        </div>
+                    `;
+                    return;
+                }
+
+                const partnerProfile = JSON.parse(saved);
+                
+                // Simulate ProfileContext logic
+                console.log('🔍 Testing ProfileContext logic...');
+                console.log('Raw localStorage value:', saved);
+                console.log('Parsed partner profile:', partnerProfile);
+                console.log('Partner profile type:', typeof partnerProfile);
+                console.log('Partner profile keys:', Object.keys(partnerProfile));
+                console.log('Partner interests:', partnerProfile.interests);
+                console.log('Partner interests type:', typeof partnerProfile.interests);
+                console.log('Partner interests is array:', Array.isArray(partnerProfile.interests));
+                
+                // Test the condition
+                const hasPartnerProfile = partnerProfile && Object.keys(partnerProfile).length > 0;
+                console.log('Has partner profile:', hasPartnerProfile);
+                
+                document.getElementById('step3Result').innerHTML = `
+                    <div class="success">
+                        ✅ ProfileContext logic test passed:<br>
+                        <strong>Has Partner Profile:</strong> ${hasPartnerProfile}<br>
+                        <strong>Profile Keys:</strong> ${Object.keys(partnerProfile).join(', ')}<br>
+                        <strong>Interests:</strong> ${partnerProfile.interests.join(', ')}
+                    </div>
+                `;
+                
+            } catch (error) {
+                document.getElementById('step3Result').innerHTML = `
+                    <div class="error">
+                        ❌ ProfileContext logic test failed: ${error.message}
+                    </div>
+                `;
+                console.error('❌ ProfileContext logic test error:', error);
+            }
+        }
+
+        function testCombinedInterests() {
+            try {
+                const saved = localStorage.getItem('partner-profile');
+                if (!saved) {
+                    document.getElementById('step4Result').innerHTML = `
+                        <div class="error">
+                            ❌ No partner profile found. Please set it first.
+                        </div>
+                    `;
+                    return;
+                }
+
+                const partnerProfile = JSON.parse(saved);
+                
+                // Simulate user profile (from your actual profile)
+                const userProfile = {
+                    name: 'Justin',
+                    interests: ['I love cats', 'anime', 'lifting weights', 'foodie stuff.'],
+                    age: 32,
+                    location: 'New York, NY',
+                    budget: '$$',
+                    neighborhood: 'SoHo',
+                    travel_radius: 1
+                };
+                
+                // Test the exact logic from AIChat.js
+                const userInterests = userProfile?.interests || [];
+                const partnerInterests = partnerProfile?.interests || [];
+                const combinedInterests = [...userInterests, ...partnerInterests];
+                
+                console.log('🔍 Testing combined interests logic...');
+                console.log('User interests:', userInterests);
+                console.log('Partner interests:', partnerInterests);
+                console.log('Combined interests:', combinedInterests);
+                console.log('Combined interests count:', combinedInterests.length);
+                
+                const expectedCount = 7; // 4 user + 3 partner
+                const hasJohnSummit = combinedInterests.includes('John Summit');
+                const hasRaves = combinedInterests.includes('raves');
+                const hasElectronic = combinedInterests.includes('electronic music');
+                
+                if (combinedInterests.length === expectedCount && hasJohnSummit && hasRaves && hasElectronic) {
+                    document.getElementById('step4Result').innerHTML = `
+                        <div class="success">
+                            ✅ Combined interests logic test passed:<br>
+                            <strong>User Interests:</strong> ${userInterests.join(', ')}<br>
+                            <strong>Partner Interests:</strong> ${partnerInterests.join(', ')}<br>
+                            <strong>Combined Interests:</strong> ${combinedInterests.join(', ')}<br>
+                            <strong>Count:</strong> ${combinedInterests.length} (expected ${expectedCount})
+                        </div>
+                    `;
+                    console.log('✅ Combined interests logic test passed');
+                } else {
+                    document.getElementById('step4Result').innerHTML = `
+                        <div class="error">
+                            ❌ Combined interests logic test failed:<br>
+                            <strong>Expected Count:</strong> ${expectedCount}<br>
+                            <strong>Actual Count:</strong> ${combinedInterests.length}<br>
+                            <strong>Has John Summit:</strong> ${hasJohnSummit}<br>
+                            <strong>Has Raves:</strong> ${hasRaves}<br>
+                            <strong>Has Electronic:</strong> ${hasElectronic}<br>
+                            <strong>Combined:</strong> ${combinedInterests.join(', ')}
+                        </div>
+                    `;
+                    console.error('❌ Combined interests logic test failed');
+                }
+                
+            } catch (error) {
+                document.getElementById('step4Result').innerHTML = `
+                    <div class="error">
+                        ❌ Combined interests test failed: ${error.message}
+                    </div>
+                `;
+                console.error('❌ Combined interests test error:', error);
+            }
+        }
+
+        async function testAPICall() {
+            try {
+                const saved = localStorage.getItem('partner-profile');
+                if (!saved) {
+                    document.getElementById('step5Result').innerHTML = `
+                        <div class="error">
+                            ❌ No partner profile found. Please set it first.
+                        </div>
+                    `;
+                    return;
+                }
+
+                const partnerProfile = JSON.parse(saved);
+                
+                // Simulate the exact API call
+                const response = await fetch('http://localhost:5001/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI2OGUwM2E3MTA5MDdhY2M2ZTZkMGU2OTQiLCJlbWFpbCI6ImFmc2FyaWp1c3RpbkBnbWFpbC5jb20iLCJpYXQiOjE3NTk4MDEzMjQsImV4cCI6MTc2MDQwNTQzMH0.fgMh1oS7wCAtpQYuRkGIkOpHmebTlM4xFP-5XkSSzhA'
+                    },
+                    body: JSON.stringify({
+                        message: 'Plan me a date',
+                        session_id: 'test-frontend-debug-' + Date.now(),
+                        partner_profile: partnerProfile
+                    })
+                });
+
+                const data = await response.json();
+                
+                console.log('🔍 API call test...');
+                console.log('Response:', data.response);
+                console.log('Partner profile sent:', partnerProfile);
+                
+                const responseText = data.response.toLowerCase();
+                const mentionsChristine = responseText.includes('christine');
+                const mentionsJohnSummit = responseText.includes('john summit');
+                const mentionsRave = responseText.includes('rave');
+                const mentionsElectronic = responseText.includes('electronic');
+                
+                if (mentionsChristine && (mentionsJohnSummit || mentionsRave || mentionsElectronic)) {
+                    document.getElementById('step5Result').innerHTML = `
+                        <div class="success">
+                            ✅ API call test passed:<br>
+                            <strong>Response:</strong> ${data.response}<br>
+                            <strong>Mentions Christine:</strong> ${mentionsChristine}<br>
+                            <strong>Mentions John Summit:</strong> ${mentionsJohnSummit}<br>
+                            <strong>Mentions Rave:</strong> ${mentionsRave}<br>
+                            <strong>Mentions Electronic:</strong> ${mentionsElectronic}
+                        </div>
+                    `;
+                    console.log('✅ API call test passed');
+                } else {
+                    document.getElementById('step5Result').innerHTML = `
+                        <div class="error">
+                            ❌ API call test failed:<br>
+                            <strong>Response:</strong> ${data.response}<br>
+                            <strong>Mentions Christine:</strong> ${mentionsChristine}<br>
+                            <strong>Mentions John Summit:</strong> ${mentionsJohnSummit}<br>
+                            <strong>Mentions Rave:</strong> ${mentionsRave}<br>
+                            <strong>Mentions Electronic:</strong> ${mentionsElectronic}
+                        </div>
+                    `;
+                    console.error('❌ API call test failed');
+                }
+                
+            } catch (error) {
+                document.getElementById('step5Result').innerHTML = `
+                    <div class="error">
+                        ❌ API call failed: ${error.message}
+                    </div>
+                `;
+                console.error('❌ API call error:', error);
+            }
+        }
+
+        // Auto-run tests on page load
+        window.onload = function() {
+            console.log('🔍 Frontend Debug Test Started');
+            console.log('==============================');
+        };
+    </script>
+</body>
+</html>

@@ -251,6 +251,12 @@ const userSchema = new mongoose.Schema({
   resyConnectedAt: {
     type: Date,
     default: null
+  },
+  // Partner reference
+  active_partner: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Partner',
+    default: null
   }
 });
 
